@@ -16,10 +16,10 @@ def lin(c):
 
 
 class Lighting:
-    def __init__(self, light, cam, key=(0.88, 0.84, 0.74),
-                 sky=(0.20, 0.21, 0.23),        # cool spill from the window side, from above
-                 floor=(0.30, 0.20, 0.12),      # warm light thrown up by the table
-                 room=(0.07, 0.06, 0.055),      # the dark of the room
+    def __init__(self, light, cam, key=(1.00, 0.95, 0.84),
+                 sky=(0.115, 0.12, 0.135),      # cool spill from the window side, from above
+                 floor=(0.25, 0.165, 0.095),    # warm light thrown up by the table
+                 room=(0.042, 0.036, 0.031),    # the dark of the room
                  exposure=1.0):
         self.light = light
         self.cam = cam

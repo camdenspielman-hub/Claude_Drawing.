@@ -161,7 +161,9 @@ class Skull:
         fwd = np.array([-np.cos(yaw), 0.0, np.sin(yaw)])
         up = np.array([0.0, 1.0, 0.0])
         left = np.cross(up, fwd)
-        self.M = np.stack([fwd, up, left], axis=1)
+        self.k = L.SKULL_SCALE
+        self.M0 = np.stack([fwd, up, left], axis=1)        # how the skull is turned
+        self.M = self.M0 * self.k                          # ... and its size
         self.t = np.asarray(pos, dtype=np.float64) - self.M @ np.array([5.0, -1.60, 0.0])
         self.parts = []
         self._build()
@@ -171,7 +173,7 @@ class Skull:
         return self.t + np.asarray(P_local, dtype=np.float64) @ self.M.T
 
     def local(self, P_world):
-        return (np.asarray(P_world, dtype=np.float64) - self.t) @ self.M
+        return (np.asarray(P_world, dtype=np.float64) - self.t) @ self.M0 / self.k
 
     def place(self, surf, mirror=False):
         M = self.M @ MIRROR if mirror else self.M
@@ -251,10 +253,10 @@ class Skull:
 
     # ---- what it blocks of the light (simple stand-in solids, named so parts can ignore themselves)
     def occluders(self):
-        occ = [Ball("skull:core", self.world([2.6, 1.9, 0]), 1.0, scale=(2.65, 2.1, 2.2), rot=self.M),
-               Ball("skull:core", self.world([6.1, 2.75, 0]), 1.0, scale=(1.7, 0.95, 1.85), rot=self.M),
-               Ball("skull:core", self.world([6.4, 1.3, 0]), 1.0, scale=(1.6, 1.0, 0.85), rot=self.M),
-               Ball("skull:core", self.world([8.6, 1.35, 0]), 1.0, scale=(1.5, 1.1, 1.38), rot=self.M)]
+        occ = [Ball("skull:core", self.world([2.6, 1.9, 0]), 1.0, scale=(2.65, 2.1, 2.2), rot=self.M0),
+               Ball("skull:core", self.world([6.1, 2.75, 0]), 1.0, scale=(1.7, 0.95, 1.85), rot=self.M0),
+               Ball("skull:core", self.world([6.4, 1.3, 0]), 1.0, scale=(1.6, 1.0, 0.85), rot=self.M0),
+               Ball("skull:core", self.world([8.6, 1.35, 0]), 1.0, scale=(1.5, 1.1, 1.38), rot=self.M0)]
         for sgn, s in ((1, "L"), (-1, "R")):
             m = np.array([1, 1, sgn])
             occ.append(Capsule("skull:brow_" + s, self.world(np.array([6.03, 3.0, 1.5]) * m), self.world(np.array([6.0, 2.82, 1.9]) * m), 0.14))
@@ -265,9 +267,15 @@ class Skull:
             jm = 0.5 * (JAW_TOP(np.linspace(0, 0.45, 5)) + JAW_BOT(np.linspace(0, 0.45, 5))) * m  # the body of the jaw
             for a, b in zip(jm[:-1], jm[1:]):
                 occ.append(Capsule("skull:jaw_" + s, self.world(a), self.world(b), 0.55))
-            occ.append(Ball("skull:jaw_" + s, self.world(np.array([4.6, -0.6, 2.2]) * m), 1.0, scale=(1.7, 1.3, 0.3), rot=self.M))
+            occ.append(Ball("skull:jaw_" + s, self.world(np.array([4.6, -0.6, 2.2]) * m), 1.0, scale=(1.7, 1.3, 0.3), rot=self.M0))
             occ.append(Capsule("skull:canine_up_" + s, self.world(np.array([9.15, 0.2, 1.12]) * m), self.world(np.array([9.28, -0.75, 1.2]) * m), 0.16))
             occ.append(Ball("skull:bulla_" + s, self.world(np.array([1.95, 0.0, 1.25]) * m), 0.75))
+        for o in occ:                      # the stand-ins grow with the skull
+            if isinstance(o, Ball):
+                o.r *= self.k if np.all(o.scale == 1) else 1.0
+                o.scale = o.scale * (self.k if not np.all(o.scale == 1) else 1.0)
+            else:
+                o.r *= self.k
         return occ
 
 
@@ -418,6 +426,100 @@ def _paint(self):
         cv.dry_now()
 
 
-Skull.paint = _paint
+def _details(self):
+    """The small things that make it bone: the seams where the plates of the skull knit together,
+    hairline cracks, and the little openings nerves once ran through."""
+    sc = self.sc
+    cv, cam, lt, rng, px = sc.cv, sc.cam, sc.lt, sc.rng, sc.px
+    core = self.part("core").surf
+    in_front = [self.stencils[n] for n in ("arch_L", "jaw_L", "ridge_L", "brow_L", "canine_up_L") if n in self.stencils]
+    core_st = self.stencils["core"]
+
+    def on_core(xs, th):
+        """Canvas points of a path drawn on the head's surface, with which of them can be seen."""
+        P, N = core(np.asarray(xs, dtype=np.float64), np.asarray(th, dtype=np.float64))
+        xy = cam.project(P)
+        ok = (np.sum(N * cam.to_eye(P), axis=-1) > 0.12) & core_st.inside(xy, px(1.0))
+        ok &= ~nasal_opening(self.local(P))
+        for st in in_front:
+            ok &= ~st.inside(xy)
+        return xy, ok, P, N
+
+    def seam(xs, th, wiggle=1.6, dark="#5b4a36", r=0.55, thick=0.55):
+        xy, ok, P, N = on_core(xs, th)
+        n = len(xy)
+        d = np.gradient(xy, axis=0)
+        nr = np.stack([-d[:, 1], d[:, 0]], 1)
+        nr /= np.maximum(np.linalg.norm(nr, axis=1, keepdims=True), 1e-9)
+        t = np.arange(n)
+        xy = xy + nr * (px(wiggle) * (np.sin(t * 0.9 + rng.uniform(0, 6)) * 0.6 + rng.normal(0, 0.35, n)))[:, None]
+        idx = np.nonzero(ok)[0]
+        if len(idx) < 4:
+            return
+        for run in np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1):
+            if len(run) < 4:
+                continue
+            # a seam fades and returns along its length
+            pr = 0.35 + 0.65 * np.clip(0.6 + 0.6 * np.sin(np.linspace(0, 9, len(run)) + rng.uniform(0, 6)), 0, 1)
+            cv.stroke(xy[run], Paint.opaque(dark), Brush(radius=px(r), hardness=0.5, thick=thick, pickup=0.2,
+                      press_radius=0.5), pr)
+
+    n = 90
+    lin_ = lambda a, b: np.linspace(a, b, n)
+    seam(lin_(0.9, 4.6), np.zeros(n) + 0.02)                                   # along the crown
+    seam(4.62 + 0.10 * np.sin(lin_(0, 7)), lin_(-1.25, 1.30))                  # across it, behind the brow
+    seam(lin_(4.6, 7.7), np.zeros(n) - 0.01, wiggle=0.8, thick=0.4)            # down the forehead
+    seam(lin_(7.7, 9.05), np.zeros(n) + 0.02, wiggle=0.5, thick=0.5)           # between the nasal bones
+    for sgn in (1, -1):
+        seam(lin_(7.55, 9.1), sgn * lin_(0.50, 0.36), wiggle=0.6, thick=0.45)  # outer edge of each nasal bone
+        seam(lin_(4.5, 1.7), sgn * (1.30 + 0.22 * np.sin(lin_(0, np.pi))), wiggle=1.2, thick=0.45)   # the temple
+        seam(0.55 + 0.12 * np.sin(lin_(0, 5)), sgn * lin_(0.05, 1.7), wiggle=1.0, thick=0.5)         # the back crest
+    cv.dry_now()
+
+    # hairline cracks, each a few wandering strokes, and scattered specks
+    for _ in range(4):
+        x0, t0 = rng.uniform(1.2, 4.3), rng.uniform(-0.2, 1.25)
+        k = 40
+        xs = x0 + np.cumsum(rng.normal(0.02, 0.012, k))
+        th = t0 + np.cumsum(rng.normal(0.004, 0.012, k))
+        seam(xs, th, wiggle=0.5, dark="#6a5942", r=0.45, thick=0.35)
+    speck_xy, speck_ok, _, _ = on_core(rng.uniform(0.6, 9.0, 260), rng.uniform(-1.3, 1.6, 260))
+    for q in speck_xy[speck_ok]:
+        cv.stroke(np.array([q, q + rng.normal(0, px(0.5), 2)]), Paint.opaque("#6b5a44"),
+                  Brush(radius=px(rng.uniform(0.35, 0.8)), hardness=0.5, thick=rng.uniform(0.2, 0.6), pickup=0.2), 1.0)
+
+    # openings in the bone: below the eye socket, and two on the side of the chin
+    def hole(P_local, w, h, ang=0.0):
+        c = cam.project(self.world(P_local))
+        d = np.array([np.cos(ang), np.sin(ang)])
+        cv.stroke(np.array([c - d * px(w), c + d * px(w)]), Paint.opaque("#1a120c"),
+                  Brush(radius=px(h), hardness=0.5, thick=1.3, pickup=0.2), [0.7, 1.0])
+        cv.stroke(np.array([c - d * px(w) + [0, px(h + 0.6)], c + d * px(w) + [0, px(h + 0.6)]]), Paint.opaque("#e3dac2"),
+                  Brush(radius=px(0.5), hardness=0.5, thick=0.5, pickup=0.2), [0.4, 0.8])
+    Pc, _ = forms.loft(CORE, carve=core_carve)(np.array([8.05]), np.array([1.95]))
+    hole(Pc[0], 2.4, 1.5, 0.5)
+    for u, v in ((0.13, -0.05), (0.20, -0.18)):
+        Pj, _ = forms.rails(JAW_TOP, JAW_BOT, [0, 0, 1], bulge=_jaw_bulge, edge=0.9)(np.array([u]), np.array([v]))
+        hole(Pj[0], 1.3, 0.9, 0.1)
+
+    # inside the nose: the thin scrolled bones, catching a little light in the dark
+    for z0, bend in ((0.26, 0.10), (-0.22, -0.08), (0.05, 0.02)):
+        pts = np.array([[9.28, 1.55, z0 * 1.3], [9.42, 1.25, z0 + bend], [9.58, 0.98, z0 * 0.7], [9.70, 0.85, z0 * 0.5 - bend]])
+        xy = cam.project(self.world(catmull(pts, 0.03)))
+        cv.stroke(xy, Paint.opaque("#6f5d46"), Brush(radius=px(0.8), hardness=0.4, thick=0.5, pickup=0.2, press_radius=0.6),
+                  np.sin(np.linspace(0.2, np.pi - 0.2, len(xy))))
+
+    cv.dry_now()
+
+
+_paint_parts = _paint
+
+
+def _paint_all(self):
+    _paint_parts(self)
+    _details(self)
+
+
+Skull.paint = _paint_all
 Skull.prepare = _prepare
 Skull.ground_ao = _ground_ao

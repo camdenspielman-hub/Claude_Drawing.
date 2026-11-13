@@ -208,8 +208,8 @@ def line(cv, pts, paint, brush, pressure=None, head=0.15, tail=0.25, lo=0.2, hi=
 def paint_form(sc, surf, ur, vr, col, st, *, r1=5.0, r2=2.3, along="u", vis=None, grid=40, blend=3.0,
                edge=True, detail=True, coverage=1.2, body=5.0, r_detail=1.2, tol=0.03):
     """Paint one solid form the way the whole picture is painted:
-    lay-in with a larger brush, modelling across it with a smaller one, sharp touches where
-    the light changes quickly, a soft brush to melt the strokes, then the edge with a fine point.
+    lay-in with a larger brush, modelling across it with a smaller one, a soft brush to melt
+    the strokes, sharp touches where the light changes quickly, then the edge with a fine point.
     Sizes are in full-canvas pixels; `st` is the form's drawn outline.
     """
     from .canvas import Brush, Paint
@@ -223,14 +223,14 @@ def paint_form(sc, surf, ur, vr, col, st, *, r1=5.0, r2=2.3, along="u", vis=None
         n += paint_surface(cv, cam, surf, col, Brush(radius=px(r2), hardness=0.55, thick=1.2, pickup=0.55), rng,
                            urange=ur, vrange=vr, along=other, length=px(r2 * 5), spacing=px(r2 * 0.75), stencil=st,
                            margin=px(r2 * 0.5), visible=vis, grid=grid, body=body)
+    if blend:
+        paint_surface(cv, cam, surf, col, Brush(kind="blender", radius=px(blend), hardness=0.2, pickup=0.30, load=0.5),
+                      rng, urange=ur, vrange=vr, along=along, length=px(10), spacing=px(4.0), stencil=st, visible=vis,
+                      grid=grid, paint=Paint.opaque("#000000"))
     if detail:
         n += paint_surface(cv, cam, surf, col, Brush(radius=px(r_detail), hardness=0.55, thick=1.2, pickup=0.6), rng,
                            urange=ur, vrange=vr, along=along, length=px(r_detail * 3.2), spacing=px(r_detail * 0.8),
                            stencil=st, margin=px(r_detail * 0.5), visible=vis, grid=grid, detail=(tol, px(3.5)), body=body)
-    if blend:
-        paint_surface(cv, cam, surf, col, Brush(kind="blender", radius=px(blend), hardness=0.2, pickup=0.30, load=0.5),
-                      rng, urange=ur, vrange=vr, along=along, length=px(16), spacing=px(4.0), stencil=st, visible=vis,
-                      grid=grid, paint=Paint.opaque("#000000"))
     if edge:
         def near_edge(P, N, u, v):
             ok = st.depth(cam.project(P)) < px(3.2)

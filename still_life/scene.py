@@ -13,16 +13,17 @@ TABLE_BACK = -30.0
 TABLE_DROP = 9.0             # how much of the front face we may see
 
 # --- where things stand
-HOURGLASS = np.array([-2.8, 0.0, -7.5])
-SKULL = np.array([5.4, 0.0, 3.4])
+HOURGLASS = np.array([-5.8, 0.0, -6.0])
+SKULL = np.array([2.6, 0.0, 8.2])
 SKULL_YAW = np.radians(40.0)             # nose turned from "left" toward the viewer
-YARN = np.array([-12.4, 4.2, 1.8])
+SKULL_SCALE = 1.08                       # a big old tom
+YARN = np.array([-15.0, 4.2, 2.5])
 YARN_R = 4.2
-COINS = np.array([-3.6, 0.0, 10.8])
-BLADE = np.array([19.0, 0.0, 4.0])       # where the point enters the wood
+COINS = np.array([-7.6, 0.0, 12.0])
+BLADE = np.array([17.8, 0.0, 2.5])       # where the point enters the wood
 BLADE_AXIS = normalize([-0.40, 0.91, -0.10])
-ORANGE = np.array([12.0, 3.3, 11.6])
-ORANGE_R = 3.3
+ORANGE = np.array([11.2, 3.0, 6.0])
+ORANGE_R = 3.0
 
 LIGHT_DIR = (-0.45, 0.68, 0.58)          # toward the window: high, to the left and in front
 

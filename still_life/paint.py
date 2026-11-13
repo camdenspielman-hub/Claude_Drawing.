@@ -62,6 +62,7 @@ def main():
         sc.cv.recorder = Recorder(args.frames, area_per_frame=sc.W * sc.H * 0.05, stride=3)
     t0 = time.time()
     objs = build(sc, names)
+    sc.objs = objs                      # so one object can ask where another stands
     reserve = Stencil.empty(sc.W, sc.H)
     for o in objs.values():
         o.prepare()

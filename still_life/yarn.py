@@ -17,7 +17,7 @@ from . import scene as L
 
 TWO_PI = 2 * np.pi
 UP = np.array([0.0, 1.0, 0.0])
-STRAND = 0.17                       # radius of one strand of yarn, cm
+STRAND = 0.135                      # radius of one strand of yarn, cm
 WOOL = lin("#4a7f99")
 WOOL_DEEP = lin("#22404f")
 NEEDLE = lin("#d2c39c")
@@ -79,9 +79,9 @@ def paint_strands(sc, strands, skip=(), seed=0, fuzz=1.0, ticks=True, wrap=0.15)
                     t = rng.random() * 0.3
                     while t < 1.0:
                         q = xy[seg[0]] + (xy[seg[-1]] - xy[seg[0]]) * t
-                        tick.add(np.array([q - nrm * r * 0.7 - tang * r * 0.5, q + nrm * r * 0.7 + tang * r * 0.5]),
-                                 np.clip(c * 0.66, 0, 1), [0.4, 1.0], r * 0.28)
-                        t += max(0.16, px(rng.uniform(5.0, 8.5)) / max(seglen, 1e-6))
+                        tick.add(np.array([q - nrm * r * 0.75 - tang * r * 0.95, q + nrm * r * 0.75 + tang * r * 0.95]),
+                                 np.clip(c * 0.80, 0, 1), [0.5, 1.0], r * 0.36)
+                        t += max(0.16, px(rng.uniform(4.5, 7.5)) / max(seglen, 1e-6))
                 # the bloom of loose fibre lying over the strand
                 if rng.random() < 0.7:
                     bloom.add(xy[seg] + side * r * rng.uniform(-0.3, 0.5), np.clip(c * 1.5 + 0.05, 0, 1),
@@ -190,7 +190,7 @@ class Yarn:
         for k in range(20):
             # early bundles lie anyhow; the later ones are chosen to cross the side we see
             a = normalize(wr.normal(0, 1, 3)) if k < 8 else normalize(np.cross(view, wr.normal(0, 1, 3)) + 0.25 * wr.normal(0, 1, 3))
-            bundles.append((a, wr.uniform(-0.6, 0.6) * R * (0.9 if k < 14 else 0.55), int(wr.integers(3, 8))))
+            bundles.append((a, wr.uniform(-0.6, 0.6) * R * (0.9 if k < 14 else 0.55), int(wr.integers(4, 10))))
         for k, (axis, d0, turns) in enumerate(bundles):
             e1, e2 = forms.frame(axis)
             strands = []
@@ -258,12 +258,12 @@ def thread_path():
     the edge, round in front of the orange and back to the blade. Returns (main run, cut-off end)."""
     s = STRAND
     main = np.array([
-        [-10.6, 2.2, 4.6], [-10.2, 0.6, 5.4], [-9.9, s, 6.4], [-9.2, s, 8.6], [-8.4, s, 11.4], [-6.8, s, 14.0],
-        [-4.4, s, 15.6], [-2.2, s, 16.5], [-1.0, -0.15, 17.0 + s], [0.2, -1.5, 17.0 + s], [1.6, -1.9, 17.0 + s],
-        [2.9, -1.2, 17.0 + s], [3.7, -0.05, 17.0 + s], [4.6, s, 16.2], [6.4, s, 14.9], [8.6, s, 15.9],
-        [11.6, s, 16.4], [14.6, s, 16.0], [17.2, s, 14.2], [19.0, s, 11.2], [19.7, s, 8.0], [19.4, s, 5.6],
-        [19.05, s, 4.25]])
-    cut = np.array([[19.0, s, 3.55], [19.3, s, 2.6], [20.2, s, 1.7], [21.5, s, 1.5], [22.6, s, 2.0]])
+        [-11.2, 2.0, 5.2], [-10.8, 0.6, 6.0], [-10.6, s, 7.0], [-11.6, s, 9.4], [-12.6, s, 12.2], [-11.4, s, 14.9],
+        [-8.6, s, 16.0], [-5.6, s, 15.4], [-2.8, s, 14.6], [0.2, s, 15.6], [2.6, s, 16.5],
+        [3.6, -0.12, 17.0 + s], [4.4, -0.85, 17.0 + s], [5.6, -1.22, 17.0 + s], [6.9, -0.95, 17.0 + s],
+        [7.9, -0.08, 17.0 + s], [9.0, s, 16.3], [11.4, s, 14.4], [14.0, s, 13.6], [16.6, s, 11.6],
+        [18.4, s, 8.4], [18.5, s, 5.2], [17.95, s, 2.85]])
+    cut = np.array([[17.75, s, 2.05], [18.0, s, 1.0], [18.9, s, 0.2], [20.3, s, 0.1], [21.4, s, 0.7]])
     return catmull(main, 0.12), catmull(cut, 0.12)
 
 
@@ -303,10 +303,14 @@ class Thread:
         sc = self.sc
         cv, cam, rng, px = sc.cv, sc.cam, sc.rng, sc.px
         strands = []
+        dagger = getattr(sc, "objs", {}).get("dagger")
         for path in (self.main, self.cut):
             on_front = path[:, 2] > L.TABLE_FRONT
             N = np.where(on_front[:, None], np.array([0.0, 0.25, 0.97]), np.array([0.0, 1.0, 0.1]))
-            strands.append(dict(P=path, N=normalize(N), ok=np.ones(len(path), bool)))
+            ok = np.ones(len(path), bool)
+            if dagger is not None:          # what lies beyond the blade is hidden by it
+                ok &= ~(dagger.stencil.inside(cam.project(path)) & (path[:, 2] < L.BLADE[2] + 0.1))
+            strands.append(dict(P=path, N=normalize(N), ok=ok))
         paint_strands(sc, strands, skip=("thread",), seed=40, fuzz=1.8, wrap=0.3)
         # where the blade came down the yarn is cut: both ends fray open
         hair = Batch(cv, Brush(radius=px(0.55), hardness=0.4, thick=0.6, pickup=0.2, press_radius=0.7))
@@ -316,10 +320,14 @@ class Thread:
             d /= max(np.linalg.norm(d), 1e-9)
             n = np.array([-d[1], d[0]])
             colr = sc.lt.shade(wool_albedo(end[None]) * 1.2, end[None], np.array([[0.0, 1.0, 0.0]]), skip=("thread",), wrap=0.4)[0]
-            for _ in range(16):
-                spread = rng.normal(0, 0.55)
-                ln = px(rng.uniform(5, 14))
+            for spread in (-0.75, 0.05, 0.8):           # the plies spring apart
+                ln = px(rng.uniform(11, 18))
+                hair.add(np.array([q - d * px(3), q + (d + n * spread * 0.5) * ln * 0.5, q + (d + n * spread) * ln]),
+                         np.clip(colr * rng.uniform(0.85, 1.15), 0, 1), [1.0, 0.8, 0.3], 4.2)
+            for _ in range(30):
+                spread = rng.normal(0, 0.6)
+                ln = px(rng.uniform(7, 22))
                 hair.add(np.array([q - d * px(2), q + (d + n * spread) * ln * 0.5, q + (d + n * spread * 1.6) * ln]),
-                         np.clip(colr * rng.uniform(0.7, 1.4), 0, 1), [1.0, 0.7, 0.15])
+                         np.clip(colr * rng.uniform(0.7, 1.5), 0, 1), [1.0, 0.7, 0.15])
         hair.flush()
         cv.dry_now()

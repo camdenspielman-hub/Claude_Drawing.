@@ -42,7 +42,7 @@ def heap():
     out.append((np.array([-5.6, 0.07, 2.6]), normalize([0.0, 1.0, 0.02]), "small"))
     out.append((np.array([5.8, 0.08, -1.4]), normalize([0.01, 1.0, 0.0]), "gold"))
     out.append((np.array([1.6, 0.09, 3.4]), normalize([0.0, 1.0, 0.0]), "silver"))
-    out.append((np.array([-1.9, 0.08, 3.9]), normalize([0.02, 1.0, 0.0]), "gold"))
+    out.append((np.array([-2.6, 0.08, 4.55]), normalize([0.02, 1.0, 0.0]), "gold"))      # just over the table's edge
     return out
 
 
@@ -141,4 +141,16 @@ class Coins:
                        grid=48, blend=0, r_detail=0.9, coverage=1.6)
             paint_form(sc, k["face"], (0, TWO_PI), (0, 1), face_col, k["st_face"], r1=3.2, r2=1.5, along="u",
                        grid=48, blend=0, r_detail=1.0, tol=0.02, coverage=1.3)
+            cv.dry_now()
+            # the raised rim turns to the window along part of its round: a thin, thick-laid light
+            top = k["c"] + k["n"] * k["t"] / 2
+            Lp = normalize(lt.light.L - (lt.light.L @ k["n"]) * k["n"])
+            a0 = np.arctan2(Lp @ e2, Lp @ e1)
+            if lt.light.lit(top[None], skip)[0] > 0.5:
+                ang = a0 + np.pi + np.linspace(-0.75, 0.75, 22)        # the far side of the rim faces the light
+                arc = top + 0.905 * R * (np.cos(ang)[:, None] * e1 + np.sin(ang)[:, None] * e2)
+                hi = np.clip(lt.tone(k["tint"] * 1.5 + 0.25), 0, 1)
+                from atelier.canvas import Brush, Paint
+                cv.stroke(sc.cam.project(arc), Paint.opaque(hi), Brush(radius=sc.px(0.85), hardness=0.5, thick=1.8,
+                          pickup=0.1, press_radius=0.6), np.sin(np.linspace(0, np.pi, 22)) ** 0.7)
             cv.dry_now()

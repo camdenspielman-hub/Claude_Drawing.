@@ -258,9 +258,9 @@ class Hourglass:
         # the room, dimly: the faintest cool veil on the side toward the window
         def veil(P, N, u, v):
             return np.sum(N * lt.light.L, axis=-1) > 0.62
-        paint_surface(cv, cam, self.glass, None, Brush(radius=px(9), hardness=0.05, thick=0.10, pickup=0.0), rng,
-                      urange=g_ur, vrange=g_vr, along="v", length=px(90), spacing=px(4), stencil=gst, margin=px(6),
-                      grid=120, paint=Paint.opaque("#aeb9c0", body=0.22), visible=veil)
+        paint_surface(cv, cam, self.glass, None, Brush(radius=px(16), hardness=0.0, thick=0.10, pickup=0.0), rng,
+                      urange=g_ur, vrange=g_vr, along="v", length=px(120), spacing=px(3), stencil=gst, margin=px(8),
+                      grid=120, paint=Paint.opaque("#aeb9c0", body=0.07), visible=veil)
         cv.dry_now()
 
         # outlines: light along the window side, dark along the other
@@ -298,7 +298,7 @@ class Hourglass:
                         return (d > 0.5) & (np.abs(a) < wa * 1.7) & (np.abs(b) < wb * 1.5)
                     paint_surface(cv, cam, self.glass, None, Brush(radius=px(4.0), hardness=0.05, thick=0.10, pickup=0.0), rng,
                                   urange=g_ur, vrange=(lo, hi), along="v", length=px(10), spacing=px(2.0), grid=160,
-                                  paint=Paint.opaque("#e9e6d6", body=1.2), visible=bloom, stencil=gst)
+                                  paint=Paint.opaque("#e9e6d6", body=0.5), visible=bloom, stencil=gst)
                 paint_surface(cv, cam, self.glass, None, Brush(radius=px(1.3), hardness=0.6, thick=thick, pickup=0.0), rng,
                               urange=g_ur, vrange=(lo, hi), along="v", length=px(5), spacing=px(1.1), grid=200,
                               paint=Paint.opaque(tone), visible=pane, min_facing=-2.0 if sign < 0 else 0.02, npts=4,
