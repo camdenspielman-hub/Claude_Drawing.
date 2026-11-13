@@ -168,9 +168,9 @@ class Dagger:
         e = 0.5 * (p_left + p_right)
         slit = np.array([p_left - bt * 0.12, p_right + bt * 0.12])
         line(cv, cam.project(slit) + [0, px(1.2)], Paint.opaque("#0b0705"), Brush(radius=px(1.5), hardness=0.5, thick=1.4), lo=0.6, hi=1.0)
-        for sgn, ln in ((-1, 1.7), (1, 1.2)):
+        for sgn, ln in ((-1, 0.9), (1, 0.6)):
             xs = np.linspace(0, ln, 14)
-            crack = e + bt * sgn * hw + np.stack([sgn * xs, 0 * xs, 0.05 * np.sin(xs * 5) * xs], 1)
+            crack = e + bt * sgn * hw + np.stack([sgn * xs, 0 * xs, 0.10 * np.sin(xs * 9) * xs + 0.04 * xs], 1)
             line(cv, cam.project(crack), Paint.opaque("#120b07"), Brush(radius=px(0.8), hardness=0.5, thick=1.0, press_radius=0.7),
                  head=0.02, tail=0.9, lo=0.0, hi=1.0)
         splinter = np.array([e - bt * (hw + 0.05) + [0, 0.0, 0.10], e - bt * (hw + 0.45) + [0, 0.12, 0.16]])

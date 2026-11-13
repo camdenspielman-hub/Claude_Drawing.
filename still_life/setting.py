@@ -151,6 +151,10 @@ def paint(sc, reserve=None, objects=()):
                   urange=ur, vrange=(0, 0.9), length=px(40), spacing=px(2.4), grid=60, visible=vis)
     paint_surface(cv, cam, front, front_col, Brush(radius=px(4.0), hardness=0.4, thick=1.2, pickup=0.5), rng,
                   urange=ur, vrange=(0, L.TABLE_DROP), length=px(30), spacing=px(3.2), grid=60, visible=vis, coverage=1.2)
+    for r, probe in ((2.4, 11), (1.2, 4)):          # shadows falling on the front face, drawn to their edges
+        paint_surface(cv, cam, front, front_col, Brush(radius=px(r), hardness=0.45, thick=1.1, pickup=0.55), rng,
+                      urange=(-20, 22), vrange=(0, L.TABLE_DROP), length=px(r * 3.2), spacing=px(r * 0.8), grid=160,
+                      visible=vis, detail=(0.02, px(probe)))
     cv.dry_now()
     # the arris itself: rubbed pale by years of sleeves, with nicks where the wood has been knocked
     xs = np.linspace(-46, 46, 500)
@@ -199,7 +203,7 @@ def _inscribe(sc, text, x, y, size):
             if len(xy) > 2:
                 from atelier.geom import catmull
                 xy = catmull(xy, max(1.0, px(2.0)))
-            cv.stroke(xy, Paint.opaque("#1c130b"), Brush(radius=px(0.9), hardness=0.5, thick=0.9, pickup=0.2), 0.85)
-            cv.stroke(xy + [px(0.5), px(1.0)], Paint.opaque("#8f7350"), Brush(radius=px(0.5), hardness=0.5, thick=0.4,
-                      pickup=0.2), 0.6)
+            cv.stroke(xy, Paint.opaque("#150e08"), Brush(radius=px(1.4), hardness=0.5, thick=1.2, pickup=0.2), 1.0)
+            cv.stroke(xy + [px(0.8), px(1.7)], Paint.opaque("#8f7350"), Brush(radius=px(0.6), hardness=0.5, thick=0.5,
+                      pickup=0.2), 0.7)
         pen += size * (0.5 if ch in " ." else 1.0)

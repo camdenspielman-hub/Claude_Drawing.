@@ -53,7 +53,10 @@ python3 tools/timelapse.py frames out/still_life.png out/timelapse
 ```
 
 It needs a C++ compiler, Python 3 with NumPy and Pillow, and `ffmpeg` for the time-lapse. The full
-canvas is 3000 x 2000 pixels and takes roughly a quarter of an hour on four cores.
+canvas is 3000 x 2000 pixels: about 1.6 million strokes, which take around ten minutes to lay.
+
+The time-lapse shows one complete pass of the finished program, from bare ground to the last
+stroke. It does not show the many earlier attempts that the program was revised through.
 
 To work on one object, paint it alone in a window of the canvas:
 

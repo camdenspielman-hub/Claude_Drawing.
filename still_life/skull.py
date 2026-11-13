@@ -9,7 +9,7 @@ and a round braincase.
 import numpy as np
 
 from atelier import forms
-from atelier.brushwork import paint_surface, line
+from atelier.brushwork import paint_surface, paint_form, line
 from atelier.canvas import Brush, Paint
 from atelier.forms import Table1D, Curve, fbm3
 from atelier.geom import Ball, Capsule, normalize, smoothstep, catmull
@@ -391,38 +391,11 @@ def _paint(self):
                             spec=0.30 if tooth else 0.06, gloss=45 if tooth else 12, wrap=0.10)
 
         small = tooth and base not in ("canine_up", "canine_lo")
-        along = "v" if p.name in ("core",) else "u"
-        if tooth:
-            along = "v"
-        r1 = px(1.3 if small else 2.2 if tooth else 5.0)
-        # lay-in
-        paint_surface(cv, cam, p.surf, col, Brush(radius=r1, hardness=0.5, thick=1.4, pickup=0.5), rng,
-                      urange=p.ur, vrange=p.vr, along=along, length=r1 * 4.5, spacing=r1 * 0.7, stencil=st,
-                      visible=vis, grid=max(20, p.grid // 2), coverage=3.0 if small else 1.2,
-                      margin=px(0.5) if small else None)
-        if not small:
-            # modelling: a smaller brush, working wet into the lay-in and across it
-            r2 = px(1.3 if tooth else 2.3)
-            paint_surface(cv, cam, p.surf, col, Brush(radius=r2, hardness=0.55, thick=1.2, pickup=0.55), rng,
-                          urange=p.ur, vrange=p.vr, along="u" if along == "v" else "v", length=r2 * 5,
-                          spacing=r2 * 0.75, stencil=st, margin=r2 * 0.5, visible=vis, grid=max(20, p.grid // 2))
-            # shadow edges and other quick changes: the point of a small brush, short touches
-            r4 = px(1.2)
-            paint_surface(cv, cam, p.surf, col, Brush(radius=r4, hardness=0.55, thick=1.2, pickup=0.6), rng,
-                          urange=p.ur, vrange=p.vr, along=along, length=r4 * 3.2, spacing=r4 * 0.8, stencil=st,
-                          margin=r4 * 0.5, visible=vis, grid=max(20, p.grid // 2), detail=(0.03, px(3.5)))
-            # soften with a clean soft brush, following the form
-            paint_surface(cv, cam, p.surf, col, Brush(kind="blender", radius=px(3.0 if not tooth else 1.6), hardness=0.2,
-                                                      pickup=0.30, load=0.5), rng,
-                          urange=p.ur, vrange=p.vr, along=along, length=px(16), spacing=px(4.0), stencil=st,
-                          visible=vis, grid=max(20, p.grid // 2), paint=Paint.opaque("#000000"))
-        # the edge, with the point of a small brush
-        r3 = px(1.0)
-        paint_surface(cv, cam, p.surf, col, Brush(radius=r3, hardness=0.7, thick=1.2, pickup=0.6), rng,
-                      urange=p.ur, vrange=p.vr, along=along, length=px(6), spacing=px(1.1), stencil=st, margin=px(0.5),
-                      coverage=2.0 if small else 1.0,
-                      visible=lambda P, N, u, v, st=st, vis=vis: (st.depth(cam.project(P)) < px(3.2)) & (True if vis is None else vis(P, N, u, v)),
-                      grid=max(20, p.grid // 2))
+        along = "v" if (p.name == "core" or tooth) else "u"
+        paint_form(sc, p.surf, p.ur, p.vr, col, st, r1=1.3 if small else 2.2 if tooth else 5.0,
+                   r2=0 if small else 1.3 if tooth else 2.3, along=along, vis=vis, grid=max(20, p.grid // 2),
+                   blend=0 if small else 1.6 if tooth else 3.0, coverage=3.0 if small else 1.2,
+                   r_detail=0.9 if tooth else 1.2)
         cv.dry_now()
 
 

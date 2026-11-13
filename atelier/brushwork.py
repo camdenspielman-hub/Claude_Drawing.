@@ -70,7 +70,9 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
     length, spacing       -> stroke length and the gap between neighbouring strokes, in pixels
     stencil, margin       -> keep the brush inside a drawn outline (margin defaults to its radius)
     detail=(tol, probe)   -> only place strokes where the colour changes by more than `tol`
-                             within `probe` px: a smaller brush going back in where it is needed
+                             within `probe` px: a smaller brush going back in where it is needed.
+                             (tol, probe, "calm") does the reverse: only where it does not change,
+                             which is where a blending brush may safely go
     """
     u0, u1 = urange
     v0, v1 = vrange
@@ -104,14 +106,15 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
     su = np.maximum(du[ci, cj], 1e-6)
     sv = np.maximum(dv[ci, cj], 1e-6)
 
-    if detail is not None and paint is None:
-        tol, probe = detail
+    if detail is not None and color is not None:
+        tol, probe = detail[0], detail[1]
+        calm = len(detail) > 2 and detail[2] == "calm"      # the opposite: only where little changes
         c0 = color(*surf(us, vs), us, vs)
         dmax = np.zeros(M)
         for du_, dv_ in ((probe / su, 0), (-probe / su, 0), (0, probe / sv), (0, -probe / sv)):
             uq, vq = np.clip(us + du_, u0, u1), np.clip(vs + dv_, v0, v1)
             dmax = np.maximum(dmax, np.abs(color(*surf(uq, vq), uq, vq) - c0).max(axis=1))
-        keep = dmax > tol
+        keep = (dmax <= tol) if calm else (dmax > tol)
         us, vs, su, sv = us[keep], vs[keep], su[keep], sv[keep]
         M = len(us)
         if M == 0:
@@ -223,10 +226,18 @@ def paint_form(sc, surf, ur, vr, col, st, *, r1=5.0, r2=2.3, along="u", vis=None
         n += paint_surface(cv, cam, surf, col, Brush(radius=px(r2), hardness=0.55, thick=1.2, pickup=0.55), rng,
                            urange=ur, vrange=vr, along=other, length=px(r2 * 5), spacing=px(r2 * 0.75), stencil=st,
                            margin=px(r2 * 0.5), visible=vis, grid=grid, body=body)
+    if detail and r2:
+        # wherever light gives way to shadow within a brush-length, go back in with short touches,
+        # so the edge of a shadow is drawn rather than left as the ragged ends of longer strokes
+        r_mid = max(r_detail, 0.75 * r2)
+        n += paint_surface(cv, cam, surf, col, Brush(radius=px(r_mid), hardness=0.5, thick=1.2, pickup=0.6), rng,
+                           urange=ur, vrange=vr, along=other, length=px(r_mid * 3.0), spacing=px(r_mid * 0.8),
+                           stencil=st, margin=px(r_mid * 0.5), visible=vis, grid=grid, detail=(tol, px(11.0)), body=body)
     if blend:
+        # melt the strokes together, but only in the quiet passages: a shadow's edge is left as drawn
         paint_surface(cv, cam, surf, col, Brush(kind="blender", radius=px(blend), hardness=0.2, pickup=0.30, load=0.5),
                       rng, urange=ur, vrange=vr, along=along, length=px(10), spacing=px(4.0), stencil=st, visible=vis,
-                      grid=grid, paint=Paint.opaque("#000000"))
+                      grid=grid, paint=Paint.opaque("#000000"), detail=(tol * 0.8, px(10.0), "calm"))
     if detail:
         n += paint_surface(cv, cam, surf, col, Brush(radius=px(r_detail), hardness=0.55, thick=1.2, pickup=0.6), rng,
                            urange=ur, vrange=vr, along=along, length=px(r_detail * 3.2), spacing=px(r_detail * 0.8),
