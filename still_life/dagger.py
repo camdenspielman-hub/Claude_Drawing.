@@ -98,8 +98,8 @@ class Dagger:
                 lt = self.lt or sc.lt
                 # the grinding left the bevels faintly wavy, so what they reflect comes in soft bands
                 w1 = noise3(np.stack([v * 0.45, u * 0.5, 0 * v + (2.0 if sign < 0 else 6.0)], 1), 1.0, 131) - 0.5
-                w2 = noise3(np.stack([v * 2.2, u * 0.4, 0 * v], 1), 1.0, 133) - 0.5
-                Nb = normalize(N + (0.16 * w1 + 0.05 * w2)[:, None] * a + (0.06 * w1)[:, None] * bw)
+                w2 = noise3(np.stack([v * 1.1, u * 1.6, 0 * v], 1), 1.0, 133) - 0.5
+                Nb = normalize(N + (0.14 * w1 + 0.03 * w2)[:, None] * a + (0.07 * w1 + 0.03 * w2)[:, None] * bw)
                 stain = smoothstep(0.50, 0.78, fbm3(P * 1.6, 1.0, 3, 135))                     # grey-brown mottling
                 pits = smoothstep(0.78, 0.92, fbm3(P * 9.0, 1.0, 2, 137))
                 near_guard = smoothstep(BLADE - 4.5, BLADE, v) * 0.35 + smoothstep(4.5, BURIED, v) * 0.25
@@ -107,10 +107,8 @@ class Dagger:
                 # turned to the window light and the other one dark
                 matte = STEEL * 0.62 * (1 - 0.55 * stain[:, None]) + PATINA * 0.55 * stain[:, None]
                 matte = matte * (1 - 0.6 * pits[:, None])
-                dirt = np.clip(0.50 + 0.15 * stain + 0.30 * pits + near_guard, 0, 0.92)
-                c = lt.mirror(STEEL, P, Nb, skip=("dagger:blade",), rough=0.10, taps=5, dirt=(matte, dirt), raw=True,
-                              rng=np.random.default_rng(len(P) + (1 if sign < 0 else 2)))
-                c = c * (1 + 1.1 * smoothstep(0.07, 0.0, u))[:, None]                           # the honed edge
+                dirt = np.clip(0.26 + 0.22 * stain + 0.30 * pits + near_guard, 0, 0.92)
+                c = lt.mirror(STEEL * 1.25, P, Nb, skip=("dagger:blade",), rough=0.08, taps=5, dirt=(matte, dirt), raw=True)
                 return lt.tone(c)
             add(name, bevel(sign), (0, 1), (0.0, BLADE - RICASSO), col, size=3.0, grid=90, along="v", vis=above,
                 min_facing=-2.0, tol=0.022, broken=0.02, outline_grid=200)
@@ -128,9 +126,10 @@ class Dagger:
             groove = (np.exp(-((u - 0.30) / 0.045) ** 2) + np.exp(-((u - 0.70) / 0.045) ** 2)) * smoothstep(0.12, 0.3, v)
             mark = np.exp(-(((u - 0.5) / 0.07) ** 2 + ((v - 0.52) / 0.10) ** 2))
             Nb = normalize(N + (0.5 * np.gradient(groove) if False else 0.0))
-            dirt = np.clip(0.45 + 0.45 * groove + 0.4 * mark + 0.3 * smoothstep(0.5, 0.8, fbm3(P * 3.0, 1.0, 3, 139)), 0, 0.95)
-            return lt.mirror(STEEL, P, N, skip=("dagger:blade",), rough=0.16, taps=6, dirt=(PATINA * 0.7, dirt),
-                             rng=np.random.default_rng(len(P) + 5))
+            blotch = smoothstep(0.5, 0.8, fbm3(P * 3.0, 1.0, 3, 139))
+            dirt = np.clip(0.34 + 0.50 * groove + 0.4 * mark + 0.25 * blotch, 0, 0.95)
+            matte = STEEL * 0.55 * (1 - 0.6 * (groove + 0.6 * blotch).clip(0, 1)[:, None]) + PATINA * 0.6 * (groove + 0.6 * blotch).clip(0, 1)[:, None]
+            return lt.mirror(STEEL * 1.15, P, N, skip=("dagger:blade",), rough=0.14, taps=6, dirt=(matte, dirt))
         add("ricasso", forms.plane(ro, 2 * hw * bw, RICASSO * a, flip=np.cross(bw, a) @ bn < 0), (0, 1), (0, 1), ricasso_col,
             size=2.4, grid=24, along="v", flat=(ro, 2 * hw * bw, RICASSO * a), tol=0.02)
 
@@ -160,7 +159,7 @@ class Dagger:
 
         block_c = g + 0.55 * a
         # the two arms: one droops as made, the other has been knocked a little out of true
-        for k, (sgn, droop, bend) in enumerate(((-1, 0.95, 0.0), (1, 0.70, 0.22))):
+        for k, (sgn, droop, bend) in enumerate(((-1, 1.00, 0.0), (1, 0.82, 0.07))):
             pts = [block_c + sgn * 1.15 * bw, block_c + sgn * 2.3 * bw - 0.18 * droop * a + bend * 0.3 * bn,
                    block_c + sgn * 3.25 * bw - 0.62 * droop * a + bend * bn, block_c + sgn * 3.85 * bw - 1.20 * droop * a + bend * 1.2 * bn]
             arm = forms.tube(Curve(pts), lambda v: 0.25 + 0.03 * np.sin(v * 9.0))
@@ -190,9 +189,11 @@ class Dagger:
 
         def wire(P, N, u, v):
             collar = (v < 0.6) | (v > 5.1)
-            turns = np.where(collar, v * 3.2 + u * 0.5, v * 8.5)
+            # wound by hand and worn by one: the turns crowd and gape, and some have sunk under grime
+            turns = np.where(collar, v * 3.2 + u * 0.5, v * 8.5 + 0.35 * np.sin(v * 2.3 + u) + 0.2 * np.sin(v * 5.1 + 2 * u))
             ph = turns * TWO_PI
-            bump = np.where(collar, 0.55, 0.38) * np.sin(ph)
+            worn = 0.35 + 0.65 * fbm3(P * 1.7, 1.0, 2, 151)
+            bump = np.where(collar, 0.55, 0.36) * np.sin(ph) * worn
             Nb = normalize(N + bump[:, None] * a)
             # a fine second twist within each turn
             fine = 0.5 + 0.5 * np.sin(u * 14.0 + ph * 0.5)
@@ -209,12 +210,12 @@ class Dagger:
 
         def pommel(u, v):
             u, v = np.asarray(u, dtype=np.float64), np.asarray(v, dtype=np.float64)
-            flute = 1 - 0.075 * (0.5 + 0.5 * np.cos(7 * (u + 0.75 * v)))
+            flute = 1 - 0.12 * (0.5 + 0.5 * np.cos(7 * (u + 0.75 * v)))
             r = pear(v) * flute
             rad = np.cos(u)[..., None] * e1 + np.sin(u)[..., None] * e2
             P = pom_base + v[..., None] * a + r[..., None] * rad
             dr = (pear(v + 1e-3) - pear(v - 1e-3)) / 2e-3
-            dflute = 0.075 * 0.5 * 7 * np.sin(7 * (u + 0.75 * v))
+            dflute = 0.12 * 0.5 * 7 * np.sin(7 * (u + 0.75 * v))
             tang = -np.sin(u)[..., None] * e1 + np.cos(u)[..., None] * e2
             N = normalize(rad - dr[..., None] * a - (dflute * 0.9)[..., None] * tang)
             return P, N
@@ -223,7 +224,7 @@ class Dagger:
             hollow = 0.5 + 0.5 * np.cos(7 * (u + 0.75 * v))
             tint = IRON * (1 - 0.5 * hollow[:, None]) + GILT * 0.6 * 0.5 * hollow[:, None]
             return tint, np.clip(0.30 + 0.30 * fbm3(P * 5.0, 1.0, 2, 149), 0, 0.9), N
-        add("pommel", pommel, (0, TWO_PI), (0, 2.1), iron(pommel_tint, ("dagger:pommel",), rough=0.26), size=2.4, grid=70,
+        add("pommel", pommel, (0, TWO_PI), (0, 2.1), iron(pommel_tint, ("dagger:pommel",), rough=0.34), size=2.4, grid=70,
             along="u", tol=0.02, broken=0.02)
         add("button", forms.sphere(pom_base + 2.18 * a, 0.2), (0, TWO_PI), (-np.pi / 2, np.pi / 2),
             iron(lambda P, N, u, v: (IRON, np.full(len(P), 0.4), N), ("dagger:pommel",)), size=1.2, grid=14, along="u", dead=False)
@@ -233,7 +234,38 @@ class Dagger:
 
     def register(self, studio):
         studio.softness_of["dagger"] = self.softness
+        studio.hook("glaze", self.shadow)
         studio.hook("finish", self.finish)
+
+    def shadow(self, studio):
+        """The blade's own shadow: a thin dark wedge that starts exactly where the steel enters the
+        wood and runs away from the window, widening and paling as it goes."""
+        from atelier.brushwork import fill_field
+        from atelier.stencil import Stencil
+        sc = self.sc
+        cv, cam, rng, px = sc.cv, sc.cam, sc.rng, sc.px
+        lt = self.lt or sc.lt
+        Lw = lt.light.L
+        table = studio.regions["table"]
+        ss = np.linspace(BURIED, BLADE, 40)
+        down = lambda P: P - Lw * (P[:, 1] / Lw[1])[:, None]
+        left = down(self.tip + ss[:, None] * self.a - half_width(ss)[:, None] * self.bw)
+        right = down(self.tip + ss[:, None] * self.a + half_width(ss)[:, None] * self.bw)
+        poly = cam.project(np.concatenate([left, right[::-1]]))
+        wedge = Stencil.from_polys([poly], sc.W, sc.H)
+        base = cam.project(self.e[None])[0]
+        run = cam.project(down((self.tip + (BURIED + 6.0) * self.a)[None]))[0] - base
+        ang = float(np.arctan2(run[1], run[0]))
+        reach = np.linalg.norm(cam.project(down((self.tip + BLADE * self.a)[None]))[0] - base)
+
+        def inside(xy):
+            return wedge.inside(xy) & table.inside(xy)
+        for r, dens, far in ((3.4, 0.8, 1.0), (2.4, 0.8, 0.5), (1.6, 0.9, 0.2)):
+            fill_field(cv, wedge.bbox(), None, lambda xy: np.full(len(xy), ang),
+                       Brush(radius=px(r), hardness=0.0, thick=0.4, pickup=0.0), rng, length=px(r * 7), spacing=px(r * 0.8),
+                       inside=lambda xy, far=far: inside(xy) & (np.linalg.norm(xy - base, axis=1) < far * reach),
+                       paint=Paint.glaze("#2a190c", dens), coverage=1.0)
+        cv.dry_now()
 
     # ---- last touches
     def finish(self, studio):
@@ -249,7 +281,7 @@ class Dagger:
             return reg.inside(xy, px(0.6))
         # old polishing scratches: many faint lines along the blade, light on the lit bevel, dark on the other
         fine = Batch(cv, Brush(radius=px(0.45), hardness=0.5, thick=0.3, pickup=0.1, press_radius=0.5))
-        for _ in range(170):
+        for _ in range(60):
             sgn = rng.choice([-1, 1])
             s0 = rng.uniform(BURIED + 0.2, BLADE - RICASSO - 1.0)
             ln = rng.uniform(0.6, 3.6)
@@ -262,23 +294,29 @@ class Dagger:
             if not visible(xy, reg).all():
                 continue
             here = studio.seen(xy[4][None])[0]
-            tone = np.clip(here * rng.choice([1.35, 0.72]) + (0.02 if rng.random() < 0.5 else 0.0), 0, 1)
-            fine.add(xy, tone, np.sin(np.linspace(0.3, np.pi - 0.3, 8)), tscale=rng.uniform(0.3, 1.0))
+            tone = np.clip(here * rng.choice([1.18, 0.82]), 0, 1)
+            fine.add(xy, tone, np.sin(np.linspace(0.3, np.pi - 0.3, 8)), tscale=rng.uniform(0.2, 0.7))
         fine.flush()
         # the ridge: a soft continuous light; the lit edge: one thin bright line, lost toward the point, broken by nicks
         ss = np.linspace(BURIED + 0.05, BLADE - RICASSO, 110)
         mid = 0.05 * np.sin(ss * 0.55 + 0.6) + 0.025 * np.sin(ss * 1.7)
         ridge = cam.project(tip + ss[:, None] * a + mid[:, None] * bw + 0.2 * bn)
-        cv.stroke(ridge, Paint.opaque("#b9bbb8"), Brush(radius=px(0.7), hardness=0.4, thick=0.5, pickup=0.2),
-                  0.45 + 0.4 * np.sin(np.linspace(0, 9, len(ss))) ** 2)
+        ok = visible(ridge, region)
+        for run_ in np.split(np.nonzero(ok)[0], np.nonzero(np.diff(np.nonzero(ok)[0]) > 1)[0] + 1):
+            if len(run_) > 6:
+                cv.stroke(ridge[run_], Paint.opaque("#a9aba6"), Brush(radius=px(0.6), hardness=0.3, thick=0.35, pickup=0.3),
+                          (0.25 + 0.5 * np.sin(np.linspace(0, 9, len(ss))) ** 2)[run_])
         Lw = lt.light.L
         lit_sign = -1 if (Lw @ (-bw)) > (Lw @ bw) else 1
         edge = cam.project(tip + ss[:, None] * a + (lit_sign * half_width(ss))[:, None] * bw)
         nick = np.ones(len(ss))
         for c in rng.uniform(0.25, 0.9, 4):
             nick *= 1 - np.exp(-((np.linspace(0, 1, len(ss)) - c) / 0.012) ** 2)
-        cv.stroke(edge - [lit_sign * px(0.5), 0], Paint.opaque("#eef0ea"), Brush(radius=px(0.7), hardness=0.6, thick=1.5, pickup=0.1),
-                  nick * smoothstep(0.0, 0.3, np.linspace(0, 1, len(ss))) * 0.95)
+        # the honed edge catches the window only along a stretch or two, never from end to end
+        tt = np.linspace(0, 1, len(ss))
+        catch = np.clip(np.sin(tt * 7.0 + 0.8) * 1.6 - 0.5, 0, 1) * smoothstep(0.05, 0.3, tt) * nick
+        cv.stroke(edge - [lit_sign * px(0.8), 0], Paint.opaque("#dfe2dc"), Brush(radius=px(0.6), hardness=0.5, thick=1.2, pickup=0.1),
+                  catch * 0.9)
         cv.dry_now()
 
         # ---- where it went into the oak
@@ -300,11 +338,6 @@ class Dagger:
             b1 = b0 + np.array([rng.uniform(-0.14, 0.14), rng.uniform(0.03, 0.10), rng.uniform(-0.04, 0.04)])
             lift.add(cam.project(np.array([b0, b1])), np.array([0.62, 0.50, 0.34]) * rng.uniform(0.7, 1.1), [1.0, 0.3])
         lift.flush()
-        for sgn, ln in ((-1, 0.55), (1, 0.35)):        # the grain has started to split beyond the slot
-            xs = np.linspace(0.0, ln, 16)
-            crack = mid_p + sgn * (0.9 + xs)[:, None] * along_grain + np.stack([0 * xs, 0 * xs, 0.16 * np.sin(xs * 14) * xs + 0.1 * xs], 1)
-            cv.stroke(cam.project(crack), Paint.opaque("#150d08"), Brush(radius=px(0.7), hardness=0.5, thick=0.9, press_radius=0.7),
-                      np.linspace(0.9, 0.0, 16))
         cv.dry_now()
 
 

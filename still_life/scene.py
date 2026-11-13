@@ -21,14 +21,14 @@ TABLE_DROP = 9.0             # how much of the front face we may see
 # --- where things stand
 YARN = np.array([-13.4, 3.75, 6.6])
 YARN_R = 4.0
-HOURGLASS = np.array([-7.2, 4.6, -3.0])            # centre of the end board nearest us (it lies on its side)
-HOURGLASS_AXIS = normalize([0.84, 0.0, -0.54])     # from that end to the far one
+HOURGLASS = np.array([7.4, 4.6, -4.4])             # centre of the end board nearest us (it lies on its side)
+HOURGLASS_AXIS = normalize([-0.951, 0.0, -0.309])  # from that end to the far one
 SKULL = np.array([3.4, 0.0, 10.2])
 SKULL_YAW = np.radians(30.0)                       # nose turned from "left" toward the viewer
-SKULL_SCALE = 1.13                                 # a big old tom
+SKULL_SCALE = 0.95                                 # a grown cat: nine and a half centimetres
 COINS = np.array([-5.0, 0.0, 10.2])
-ORANGE = np.array([12.9, 3.4, 0.9])
-ORANGE_R = 3.4
+ORANGE = np.array([12.9, 3.8, 0.6])
+ORANGE_R = 3.8
 BLADE = np.array([18.4, 0.0, 5.6])                 # where the point enters the wood
 BLADE_AXIS = normalize([-0.38, 0.91, -0.16])
 

@@ -41,7 +41,7 @@ SPINDLE = Profile([(0.0, 0.62), (0.5, 0.62), (0.75, 0.42), (1.1, 0.56), (1.45, 0
 
 
 class Hourglass:
-    softness = (0.20, 0.22)
+    softness = (0.14, 0.12)
     reach = 13.0
 
     def __init__(self, sc):
@@ -288,17 +288,32 @@ class Hourglass:
             def shine(P, N, u, v):
                 c = np.clip(facing(P, N), 0, 1)
                 fres = 0.045 + 0.75 * (1 - c) ** 4
-                refl = lt.mirror(np.ones(3), P, N, skip=("hg:glass",), raw=True) * fres[:, None]
+                refl = lt.mirror(np.ones(3), P, N, skip=("hg:glass",), rough=0.035, taps=7, raw=True) * fres[:, None]
+                refl = refl + (fres ** 1.5)[:, None] * np.array([0.050, 0.058, 0.052])       # the dim room, in its edge
                 return lt.tone(refl)
 
             def bright(P, N, u, v):
                 shape = P.shape[:-1]
                 col = shine(P.reshape(-1, 3), N.reshape(-1, 3), None, None)
-                return (luma(col) > 0.13).reshape(shape)
+                return (luma(col) > 0.085).reshape(shape)
             for r, sp in ((2.0, 1.6), (1.0, 0.9)):
                 paint_surface(cv, cam, surf, shine, Brush(radius=px(r), hardness=0.5, thick=1.0, pickup=0.0), rng,
                               length=px(r * 3.5), spacing=px(sp), visible=bright, thick_by_value=(0.0, 2.0),
                               margin=px(0.6), coverage=1.3, **common)
+            cv.dry_now()
+
+            # the window a second time, small, dim and upside down, on the inside of the far wall of the glass
+            def far_shine(P, N, u, v):
+                refl = lt.mirror(np.array([0.80, 0.86, 0.78]), P, -N, skip=("hg:glass",), raw=True) * 0.05
+                return lt.tone(refl)
+
+            def far_bright(P, N, u, v):
+                shape = P.shape[:-1]
+                col = far_shine(P.reshape(-1, 3), N.reshape(-1, 3), None, None)
+                return ((luma(col) > 0.12) & (facing(P, N).reshape(-1) < -0.15)).reshape(shape)
+            paint_surface(cv, cam, surf, far_shine, Brush(radius=px(1.3), hardness=0.4, thick=0.8, pickup=0.0), rng,
+                          length=px(5), spacing=px(1.2), visible=far_bright, min_facing=-2.0, margin=px(1.0), coverage=1.2,
+                          **common)
             cv.dry_now()
         # dust of sand clinging inside the upper glass, and single grains catching light on the level sand
         speck = Batch(cv, Brush(radius=px(0.55), hardness=0.5, thick=0.5, pickup=0.1))

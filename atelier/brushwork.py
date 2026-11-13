@@ -63,7 +63,8 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
                   urange=(0.0, 1.0), vrange=(0.0, 1.0), npts=7, visible=None, body=5.0,
                   coverage=1.0, wobble=0.25, head=0.25, tail=0.3, press=(0.25, 1.0), rjit=0.0,
                   order="shuffle", paint=None, grid=28, slant=0.0, min_facing=0.02,
-                  stencil=None, margin=None, detail=None, thick_by_value=None, broken=0.0, recolour=None):
+                  stencil=None, margin=None, detail=None, thick_by_value=None, broken=0.0, recolour=None,
+                  needed=None):
     """Cover a parametric surface with strokes that follow one of its parameter directions.
 
     surf(u, v)            -> points P (..., 3) and outward normals N (..., 3)
@@ -168,6 +169,12 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
 
     mid = npts // 2
     cols = color(Pp[:, mid], Np[:, mid], Up[:, mid], Vp[:, mid]) if paint is None else None
+    if needed is not None and cols is not None:
+        keep = needed(xyp[:, mid], cols) & ok[:, mid]
+        if not keep.any():
+            return 0
+        xyp, ok, cols = xyp[keep], ok[keep], cols[keep]
+        M = len(xyp)
     ts = np.ones(M)
     if cols is not None:
         if recolour is not None:
@@ -200,7 +207,7 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
 def paint_solid(cv, cam, surf, color, brush, rng, *, region, flow, which="u", length=40.0, spacing=6.0,
                 npts=7, coverage=1.0, wobble=0.25, bend=0.2, head=0.25, tail=0.3, press=(0.25, 1.0), rjit=0.0,
                 order="shuffle", paint=None, margin=None, detail=None, thick_by_value=None, broken=0.0,
-                recolour=None, visible=None, body=5.0):
+                recolour=None, visible=None, body=5.0, needed=None):
     """Cover what shows of a sculpted solid with strokes that follow its form.
 
     surf(x, y)            -> the point of the solid under canvas spot (x, y) and its normal (zero if none)
@@ -252,8 +259,24 @@ def paint_solid(cv, cam, surf, color, brush, rng, *, region, flow, which="u", le
             + bend * rng.normal(0, 1, (M, 1)) * length * (k * k - 1.0 / 12.0))
     xyp = seeds[:, None, :] + (k * length)[..., None] * d2[:, None, :] + side[..., None] * nr[:, None, :]
     ok = region.inside(xyp.reshape(-1, 2), brush.radius * 0.85 if margin is None else margin).reshape(M, npts)
+    # a stroke follows one surface: it stops where the form drops away behind an edge
+    Pp, Np = surf(xyp[..., 0], xyp[..., 1])
+    there = np.any(Np != 0, axis=-1)
+    step_cm = (length / (npts - 1)) / np.maximum(cam.px_per_cm(P), 1e-6)
+    gap = np.linalg.norm(np.diff(Pp, axis=1), axis=-1)
+    joined = gap < (2.6 * step_cm[:, None] + 0.04)
+    mid = npts // 2
+    conn = np.ones((M, npts), bool)
+    conn[:, mid + 1:] = joined[:, mid:]
+    conn[:, :mid] = joined[:, :mid]
+    ok &= there & conn
 
     cols = color(P, N, seeds[:, 0], seeds[:, 1]) if paint is None else None
+    if needed is not None and cols is not None:
+        keep = needed(seeds, cols)
+        if not keep.any():
+            return 0
+        xyp, ok, cols = xyp[keep], ok[keep], cols[keep]
     return _lay_strokes(cv, brush, body, xyp, ok, cols, paint, rng, head, tail, press, rjit, order,
                         thick_by_value, broken, recolour)
 

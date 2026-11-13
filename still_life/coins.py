@@ -19,8 +19,8 @@ from . import scene as L
 TWO_PI = 2 * np.pi
 METALS = {
     #          tint (linear)                tarnish / grime        radius  thickness
-    "gold":   (np.array([1.00, 0.70, 0.26]), lin("#6a3f1c"), 1.20, 0.10),
-    "angel":  (np.array([1.00, 0.72, 0.28]), lin("#6a3f1c"), 1.45, 0.10),
+    "gold":   (np.array([0.95, 0.65, 0.25]), lin("#6a3f1c"), 1.15, 0.10),
+    "angel":  (np.array([0.95, 0.67, 0.27]), lin("#6a3f1c"), 1.45, 0.10),
     "shill":  (np.array([0.80, 0.80, 0.77]), lin("#2b2c33"), 1.55, 0.11),
     "six":    (np.array([0.80, 0.80, 0.77]), lin("#2b2c33"), 1.25, 0.10),
     "penny":  (np.array([0.78, 0.78, 0.75]), lin("#2b2c33"), 0.78, 0.08),
@@ -33,17 +33,17 @@ def scatter():
     lay = [
         # the heap: coins lying flat underneath, others slid on top of them and tipped at all angles
         (-1.9, 0.3, 0.00, 0.02, 0.02, "shill"), (0.6, 1.4, 0.00, -0.02, 0.03, "angel"), (0.2, -1.3, 0.00, 0.03, -0.02, "copper"),
-        (2.3, 0.0, 0.00, -0.02, 0.01, "six"), (-0.9, 2.4, 0.00, 0.02, 0.04, "gold"),
+        (2.3, 0.0, 0.00, -0.02, 0.01, "six"), (-0.9, 2.4, 0.00, 0.02, 0.04, "copper"),
         (-0.8, 0.1, 0.20, 0.16, 0.08, "gold"), (1.3, 0.6, 0.22, -0.20, 0.12, "shill"), (0.3, -0.5, 0.36, 0.08, -0.22, "copper"),
-        (-0.3, 1.3, 0.34, 0.18, 0.24, "six"), (1.6, -0.9, 0.24, -0.26, -0.10, "gold"),
-        (0.5, 0.3, 0.62, -0.34, 0.36, "gold"), (-1.0, 0.9, 0.60, -0.42, 0.46, "angel"), (0.9, 1.4, 0.44, 0.30, 0.34, "penny"),
-        (-0.1, -0.2, 0.84, -0.10, 0.20, "shill"),
+        (-0.3, 1.3, 0.34, 0.18, 0.24, "six"), (1.6, -0.9, 0.24, -0.26, -0.10, "six"),
+        (0.5, 0.3, 0.50, -0.20, 0.22, "gold"), (-1.0, 0.9, 0.48, -0.24, 0.30, "angel"), (0.9, 1.4, 0.44, 0.30, 0.34, "penny"),
+        (-0.1, -0.2, 0.66, -0.08, 0.14, "shill"),
         # the trail toward the hourglass they were knocked from beside
-        (-4.6, -1.6, 0.00, 0.02, 0.00, "gold"), (-3.4, -3.4, 0.00, 0.00, 0.03, "shill"), (-5.6, -4.6, 0.00, 0.01, 0.02, "gold"),
+        (-4.6, -1.6, 0.00, 0.02, 0.00, "gold"), (-3.4, -3.4, 0.00, 0.00, 0.03, "shill"), (-5.6, -4.6, 0.00, 0.01, 0.02, "penny"),
         (-2.2, -5.0, 0.00, 0.03, 0.01, "copper"),
         # strays toward the front, and the ones the skull's jaw came down beside
         (-4.2, 3.6, 0.00, 0.02, 0.02, "gold"), (-0.6, 5.2, 0.00, 0.01, 0.00, "angel"), (3.4, 4.3, 0.00, 0.00, 0.02, "penny"),
-        (-6.2, 6.25, 0.00, 0.01, 0.01, "six"), (4.3, 5.7, 0.00, 0.03, 0.00, "gold"), (6.4, 5.2, 0.00, 0.00, 0.02, "copper"),
+        (-6.2, 6.25, 0.00, 0.01, 0.01, "six"), (4.3, 5.7, 0.00, 0.03, 0.00, "shill"), (6.4, 5.2, 0.00, 0.00, 0.02, "copper"),
         (1.9, 3.6, 0.00, 0.02, 0.01, "shill"),
     ]
     return lay
@@ -150,7 +150,7 @@ class Coins:
                 low = 1 - np.clip(h0, 0, 1)
                 mottle = smoothstep(0.35, 0.75, fbm3(P * 4.0 + k["i"], 1.0, 3, 101))
                 if k["kind"] in ("gold", "angel"):       # gold does not tarnish: only reddish dirt in the low places
-                    dirt = np.clip(0.20 + 0.30 * low * mottle, 0, 0.7)
+                    dirt = np.clip(0.32 + 0.30 * low * mottle, 0, 0.8)
                     matte = k["tint"] * 0.55 * (1 - 0.6 * (low * mottle)[:, None]) + k["grime"] * 0.6 * (low * mottle)[:, None]
                 elif k["kind"] == "copper":              # copper goes brown and matte, with green only in the hollows
                     dirt = np.clip(0.58 + 0.27 * low, 0, 0.95)
@@ -158,7 +158,7 @@ class Coins:
                     matte = lin("#6b3f28") * (1 - 0.7 * green) + k["grime"] * 0.7 * green
                 else:                                    # silver is grey, rubbed bright on the high points, toned dark in the low
                     dirt = np.clip(0.32 + 0.33 * low, 0, 0.9)
-                    matte = k["tint"] * 0.50 * (1 - 0.7 * (low * (0.4 + 0.6 * mottle))[:, None]) + k["grime"] * 0.7 * (low * (0.4 + 0.6 * mottle))[:, None]
+                    matte = k["tint"] * 0.50 * (1 - 0.7 * (low * (0.75 + 0.25 * mottle))[:, None]) + k["grime"] * 0.7 * (low * (0.75 + 0.25 * mottle))[:, None]
                 return lt.mirror(k["tint"], P, Nb, skip=("coin%d" % k["i"],), rough=0.20, taps=5, dirt=(matte, dirt),
                                  rng=np.random.default_rng(len(P) + k["i"]))
             f = Form("coin%d" % k["i"], face, (-1.08, 1.08), (-1.08, 1.08), col, owner="coins", size=2.8, grid=30, along="u",
@@ -184,7 +184,7 @@ class Coins:
         cv, cam, rng, px = sc.cv, sc.cam, sc.rng, sc.px
         lt = self.lt or sc.lt
         Lw = lt.light.L
-        dark = Batch(cv, Brush(radius=px(1.0), hardness=0.35, thick=0.8, pickup=0.2, press_radius=0.5))
+        dark = Batch(cv, Brush(radius=px(1.7), hardness=0.0, thick=0.6, pickup=0.0, press_radius=0.6))
         light = Batch(cv, Brush(radius=px(0.9), hardness=0.5, thick=1.8, pickup=0.1, press_radius=0.6))
         fleck = Batch(cv, Brush(radius=px(1.6), hardness=0.5, thick=2.8, pickup=0.1, press_radius=0.6))
         walls = []
@@ -239,8 +239,8 @@ class Coins:
                 mid = 0.5 * (xy[run] + xy_low[run])
                 walls.append((mid, wall_col[run].mean(axis=0), max(px(0.6), 0.5 * float(h[run].mean()))))
                 # the dark line under the edge, where it meets the table or the coin beneath
-                dark.add(xy_low[run] + [0.0, px(0.5)], np.array([0.040, 0.027, 0.018]),
-                         np.sin(np.linspace(0.25, np.pi - 0.25, len(run))) ** 0.5)
+                dark.add(xy_low[run] + [px(0.8), px(1.2)], None, np.sin(np.linspace(0.25, np.pi - 0.25, len(run))) ** 0.5,
+                         paint=Paint.glaze("#120a05", 2.0))
             # light along the rim toward the window: broken, never a drawn circle
             toward = (radial @ Lw > 0.25) & seen & (lit > 0.4)
             hi = np.clip(lt.tone(k["tint"] * 1.9 + 0.25), 0, 1)

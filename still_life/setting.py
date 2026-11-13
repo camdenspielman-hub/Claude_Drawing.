@@ -19,7 +19,7 @@ from . import scene as L
 OAK = lin("#7c5d3c")
 OAK_DARK = lin("#3f2a18")
 WALL_HUE = np.array([1.10, 0.94, 0.60])     # olive umber
-JOINT_Z = 2.4                               # where two boards of the top meet
+JOINT_Z = 3.3                               # where two boards of the top meet
 
 
 def window_pool(P):
@@ -37,7 +37,7 @@ def wall_linear(P, lit=1.0):
     glow = np.exp(-(((x - 11.0) / 25.0) ** 2 + ((y - 12.0) / 15.0) ** 2))
     v = 0.0055 + 0.040 * glow
     q = np.stack([x * 0.16, y * 0.16, 0 * x], 1)
-    patches = 0.72 + 0.56 * fbm3(q, 1.0, 3, 41)                       # dry, uneven scumbling
+    patches = 0.87 + 0.26 * fbm3(q * 0.6, 1.0, 2, 41)                 # dry, uneven scumbling
     band = 1 - 0.38 * np.exp(-(y / 2.4) ** 2)                         # darker just above the table
     warm = 0.5 + 0.5 * fbm3(q * 0.5 + 7.0, 1.0, 2, 43)
     hue = WALL_HUE * (1 + 0.10 * (warm[:, None] - 0.5) * np.array([1.0, 0.2, -1.0]))
@@ -57,10 +57,11 @@ def oak_albedo(P, front=False):
         return a * 0.34
     # rubbed pale and matte toward the front edge; grimy toward the back
     a = a * (1 + 0.16 * smoothstep(L.TABLE_FRONT - 14.0, L.TABLE_FRONT, z))[:, None]
-    a = a * (1 - 0.18 * smoothstep(-6.0, -22.0, z))[:, None]
+    a = a * ((1 - 0.24 * smoothstep(-6.0, -22.0, z))[:, None] * (1 + smoothstep(-8.0, -22.0, z)[:, None] * np.array([0.10, 0.0, -0.16])))
     # the joint between two boards: a wavering dark line, and the boards either side a shade apart
     joint = JOINT_Z + 0.10 * np.sin(x * 0.19) + 0.05 * np.sin(x * 0.71)
-    a = a * (1 - 0.72 * np.exp(-((z - joint) / 0.035) ** 2))[:, None]
+    a = a * (1 - 0.80 * np.exp(-((z - joint) / 0.055) ** 2))[:, None]                 # the gap
+    a = a * (1 + 0.22 * np.exp(-((z - joint - 0.13) / 0.07) ** 2))[:, None]           # the near board's rubbed edge
     a = a * (1 + 0.05 * np.sign(z - joint))[:, None]
     return a
 
@@ -88,7 +89,7 @@ class Setting:
             edge = smoothstep(0.35, 0.0, v)[:, None]              # the worn arris catches the light
             return lt.shade(oak_albedo(P, front=True) * (1 + 1.6 * edge), P, N, crowd=0.6)
         self.forms = [
-            Form("wall", wall, (-70, 70), (0, 52), wall_col, size=30, grid=36, finish=0.2, along="u", broken=0.03,
+            Form("wall", wall, (-70, 70), (0, 52), wall_col, size=30, grid=36, finish=0.2, along="u", broken=0.0,
                  coverage=1.7, thick=(1.1, 1.25), tol=0.02,
                  flat=(np.array([0, 0, L.WALL_Z]), np.array([1.0, 0, 0]), np.array([0, 1.0, 0]))),
             Form("table", top, (-52, 52), (L.TABLE_BACK, L.TABLE_FRONT), top_col, size=15, grid=80, finish=1.0, along="u",
@@ -110,10 +111,11 @@ class Setting:
 
     def register(self, studio):
         studio.softness_of.update(self.softness)
-        studio.hook("dead", self.blend_wall)
+        studio.hook("dead", lambda st: self.blend_wall(st, edges=False))
         studio.hook("colour", self.blend_wall)
         studio.hook("colour", self.lose_far_edge)
         studio.hook("model", self.lose_far_edge)
+        studio.hook("model", self.blend_table)
         studio.hook("finish", self.wear)
 
     def lose_far_edge(self, studio):
@@ -123,7 +125,7 @@ class Setting:
         table, wall = studio.regions["table"], studio.regions["wall"]
         xs = np.linspace(-52, 52, 260)
         line = cam.project(np.stack([xs, 0 * xs, np.full_like(xs, L.TABLE_BACK)], 1))
-        lose = 0.35 + 0.65 * np.clip(0.5 + 1.3 * (fbm3(np.stack([xs * 0.09, 0 * xs, 0 * xs + 4.0], 1), 1.0, 2, 57) - 0.5) * 2, 0, 1)
+        lose = 0.60 + 0.40 * np.clip(0.5 + 1.3 * (fbm3(np.stack([xs * 0.09, 0 * xs, 0 * xs + 4.0], 1), 1.0, 2, 57) - 0.5) * 2, 0, 1)
         lose = np.maximum(lose, smoothstep(14.0, 34.0, np.abs(xs - 2.0)))          # always lost toward the sides
         batch = Batch(cv, Brush(kind="blender", radius=px(1.0), hardness=0.05, pickup=0.5, load=0.5))
         for i in range(0, len(xs) - 6, 3):
@@ -133,20 +135,68 @@ class Setting:
                 continue                                    # something stands in front of the edge here
             if lose[i + 3] < 0.3:
                 continue
-            for dy in (-0.4, 0.5):
-                batch.add(seg + [0, px(dy * 10 * lose[i + 3])], np.zeros(3), 1.0, 5.0 + 13.0 * lose[i + 3])
+            for dy in (-0.5, 0.0, 0.6):
+                batch.add(seg + [0, px(dy * 5 * lose[i + 3])], np.zeros(3), 1.0, 2.5 + 4.5 * lose[i + 3])
         batch.flush(rng=rng)
 
-    def blend_wall(self, studio):
-        """Work the wall together with a big soft brush while it is wet, so it is one thin uneven glow."""
+    def blend_table(self, studio):
+        """Soften the table top with a clean brush drawn along the grain, so cast shadows have soft
+        edges instead of crumbled ones (their sharp contact accents are put back at the finish)."""
         from atelier.brushwork import fill_field
         sc = self.sc
-        wall = studio.regions["wall"]
         px = sc.px
-        for r in (30.0, 16.0):
-            fill_field(sc.cv, wall.bbox(), None, lambda xy: 0.5 * np.sin(xy[:, 0] / px(260.0) + xy[:, 1] / px(190.0)),
-                       Brush(kind="blender", radius=px(r), hardness=0.1, pickup=0.5, load=0.5), sc.rng, length=px(r * 6),
-                       spacing=px(r * 0.7), stencil=wall, margin=px(r * 0.8), paint=Paint.opaque("#000000"), curl=0.3)
+        table = studio.regions["table"]
+        for r in (7.0, 4.5):
+            fill_field(sc.cv, table.bbox(), None, lambda xy: 0.12 * np.sin(xy[:, 1] / px(60.0)),
+                       Brush(kind="blender", radius=px(r), hardness=0.0, pickup=0.32, load=0.5), sc.rng, length=px(r * 6),
+                       spacing=px(r * 0.6), stencil=table, margin=px(r * 1.1), paint=Paint.opaque("#000000"), curl=0.08)
+
+    def blend_wall(self, studio, edges=True):
+        """Work the wall together with a big soft brush while it is wet, so it is one thin uneven glow;
+        then carry that same paint up to everything standing against it, so no collar is left round anything."""
+        from atelier.brushwork import fill_field
+        sc = self.sc
+        cv, rng, px = sc.cv, sc.rng, sc.px
+        wall = studio.regions["wall"]
+        wf = studio.form("wall")
+        if edges:
+            wf.cut_in = False                      # the wall's edges are done here, while it is wet
+            studio._cut_in(wf)
+
+        def swirl(xy, k=0):
+            # the brush wanders every way over the wall, as when a ground is scumbled in
+            q = np.stack([xy[:, 0] / px(420.0), xy[:, 1] / px(420.0), np.full(len(xy), 3.0 + k)], 1)
+            return 2.6 * np.pi * fbm3(q, 1.0, 2, 71 + k)
+        for i, r in enumerate((36.0, 26.0, 18.0, 12.0)):
+            fill_field(cv, wall.bbox(), None, lambda xy, i=i: swirl(xy, i),
+                       Brush(kind="blender", radius=px(r), hardness=0.0, pickup=0.55, load=0.5), rng, length=px(r * 5),
+                       spacing=px(r * 0.45), stencil=wall, margin=px(r * 0.8), paint=Paint.opaque("#000000"), curl=0.25)
+        if not edges:
+            return
+        # match the wall beside each object to the wall a little further out: look there, mix that, lay it in
+        for r, band, reach in ((9.0, 40.0, 54.0), (5.0, 18.0, 34.0), (2.5, 8.0, 20.0)):
+            studio._look = None
+            pts = wall.edge_points(px(r * 0.7), rng, band=px(band))
+            if len(pts) == 0:
+                continue
+            n = wall.inward(pts)
+            src = pts + n * np.maximum(px(reach) - wall.depth(pts), 0.0)[:, None]
+            ok = wall.inside(src, px(reach * 0.55))
+            pts, n, cols = pts[ok], n[ok], studio.seen(src[ok])
+            t = np.stack([-n[:, 1], n[:, 0]], axis=1)
+            batch = Batch(cv, Brush(radius=px(r), hardness=0.3, thick=1.25, pickup=0.35), wf.body)
+            ln = px(r * 3.2)
+            for i in range(len(pts)):
+                batch.add(np.array([pts[i] - t[i] * ln / 2, pts[i] + t[i] * ln / 2]), cols[i], [0.7, 1.0])
+            batch.flush(rng=rng)
+        studio._look = None
+        # and close in to everything that stands against it with smaller and smaller clean brushes
+        for i, r in enumerate((8.0, 5.0, 3.0)):
+            near = lambda xy, r=r: wall.depth(xy) < px(r * 7.0)
+            fill_field(cv, wall.bbox(), None, lambda xy, i=i: swirl(xy, i + 5),
+                       Brush(kind="blender", radius=px(r), hardness=0.0, pickup=0.5, load=0.5), rng, length=px(r * 5),
+                       spacing=px(r * 0.5), stencil=wall, margin=px(r * 0.75), inside=near, paint=Paint.opaque("#000000"), curl=0.3)
+        studio._to_border(wf, 10.0)
 
     def wear(self, studio):
         """What use has done to the table: knife marks, a crack running in from the edge, the pale
@@ -162,7 +212,7 @@ class Setting:
         # knife marks: short straight scores at all angles, each a dark cut with a pale lip
         dark = Batch(cv, Brush(radius=px(0.6), hardness=0.5, thick=0.5, pickup=0.2, press_radius=0.6))
         pale = Batch(cv, Brush(radius=px(0.5), hardness=0.5, thick=0.35, pickup=0.2, press_radius=0.6))
-        for _ in range(34):
+        for _ in range(12):
             c = np.array([rng.uniform(-20, 22), 0.0, rng.uniform(-6, 16.4)])
             ang, ln = rng.uniform(0, np.pi), rng.uniform(0.4, 1.8)
             d = np.array([np.cos(ang), 0, np.sin(ang)])
@@ -171,20 +221,11 @@ class Setting:
             if not ok.all():
                 continue
             col = tone(c[None])[0]
-            dark.add(xy, np.clip(col * 0.72, 0, 1), np.sin(np.linspace(0.3, np.pi - 0.3, 9)), tscale=rng.uniform(0.4, 1.0))
-            pale.add(xy + [0, px(1.0)], np.clip(col * 1.15 + 0.01, 0, 1), np.sin(np.linspace(0.3, np.pi - 0.3, 9)) * 0.6,
-                     tscale=rng.uniform(0.4, 1.0))
+            dark.add(xy, np.clip(col * 0.84, 0, 1), np.sin(np.linspace(0.3, np.pi - 0.3, 9)), tscale=rng.uniform(0.3, 0.7))
+            pale.add(xy + [0, px(1.0)], np.clip(col * 1.08, 0, 1), np.sin(np.linspace(0.3, np.pi - 0.3, 9)) * 0.6,
+                     tscale=rng.uniform(0.3, 0.7))
         dark.flush()
         pale.flush()
-        # a crack running in from the front edge along the grain
-        xs = np.linspace(8.0, 12.4, 60)
-        crack = np.stack([xs, 0 * xs, 16.0 + 0.22 * np.sin(xs * 1.3) + 0.09 * np.sin(xs * 5.3) - 0.02 * (xs - 8.0) ** 2], 1)
-        xy, ok = on_table(crack)
-        idx = np.nonzero(ok)[0]
-        for run in np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1):
-            if len(run) > 3:
-                cv.stroke(xy[run], Paint.opaque("#1d130b"), Brush(radius=px(0.8), hardness=0.5, thick=0.9, pickup=0.2,
-                          press_radius=0.7), np.linspace(1.0, 0.15, len(run)))
         cv.dry_now()
         # the arris: rubbed pale by years of sleeves, broken by nicks
         xs = np.linspace(-52, 52, 620)

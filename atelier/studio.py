@@ -178,8 +178,8 @@ class Studio:
     def stage_draw(self):
         sc = self.sc
         cv, rng, px = sc.cv, sc.rng, sc.px
-        line = Batch(cv, Brush(radius=px(1.1), hardness=0.4, thick=0.45, pickup=0.2, press_radius=0.5))
-        ink = Paint.opaque("#35261a")
+        line = Batch(cv, Brush(radius=px(1.1), hardness=0.3, thick=0.22, pickup=0.2, press_radius=0.5))
+        ink = Paint.opaque("#4a3725")           # thin umber, a little darker than the ground: a guide, to be painted out
         for f in self.forms:
             if f.region.area() < 30:
                 continue
@@ -214,8 +214,44 @@ class Studio:
             # each form keeps to its own shape, so wet neighbours are not dragged into one another by accident
             self._lay(f, r, f.along, margin=self.sc.px(0.9 * r), coverage=f.coverage * 1.1, thick_by_value=f.thick,
                       broken=f.broken)
+            if f.flat is not None:
+                self._to_border(f, r)
         self.soften_edges(strength=1.0)
         self.dry()
+
+    def _to_border(self, f, r):
+        """Strokes along the canvas's own edges, so a flat form that runs off the picture leaves no bare ground there."""
+        sc = self.sc
+        cv, cam, rng = sc.cv, sc.cam, sc.rng
+        px = sc.px
+        origin, eu, ev = f.flat
+        nrm = np.cross(eu, ev)
+        rr = px(min(r, 12.0))
+        batch = Batch(cv, Brush(radius=rr, hardness=0.4, thick=1.2, pickup=0.5), f.body)
+        W, H = sc.W, sc.H
+        n = 0
+        for a, b in (((0, 0), (W, 0)), ((W, 0), (W, H)), ((W, H), (0, H)), ((0, H), (0, 0))):
+            a, b = np.array(a, float), np.array(b, float)
+            d = (b - a) / np.linalg.norm(b - a)
+            inward = np.array([-d[1], d[0]])
+            m = int(np.linalg.norm(b - a) / (rr * 0.8)) + 1
+            for off in (0.6, 1.8):
+                pts = a + np.linspace(0, 1, m)[:, None] * (b - a) + inward * rr * off + rng.normal(0, rr * 0.15, (m, 2))
+                pts = np.clip(pts, [0.5, 0.5], [W - 0.5, H - 0.5])
+                keep = f.region.inside(pts, 0)
+                if not keep.any():
+                    continue
+                pts = pts[keep]
+                P = cam.onto_plane(pts, origin, nrm)
+                dd = P - origin
+                u, v = (dd @ eu) / (eu @ eu), (dd @ ev) / (ev @ ev)
+                Ps, N = f.surf(u, v)
+                cols = f.colour(Ps, N, u, v)
+                for i in range(len(pts)):
+                    batch.add(np.array([pts[i] - d * rr * 1.6, pts[i] + d * rr * 1.6]), cols[i], [0.7, 1.0])
+                    n += 1
+        if n:
+            batch.flush(rng=rng)
 
     def stage_model(self):
         sc = self.sc
@@ -248,9 +284,31 @@ class Studio:
             self._lay(f, rd, f.along, margin=px(0.5 * rd), hardness=0.55, thick=1.2, pickup=0.6, length=rd * 3.2,
                       spacing=rd * 0.85, detail=(f.tol * 1.4, px(3.5)))
         for f in self.forms:
-            if f.finish >= 0:
+            if f.finish >= 0 and getattr(f, "cut_in", True):
                 self._cut_in(f)
         self.dry()
+        self.correct()
+        self.dry()
+
+    def correct(self, tol=0.075, rounds=2):
+        """Stand back and compare: wherever what is on the canvas differs from what should be there,
+        go back in with a small brush. (Earlier passes only work where the form itself changes; this
+        one looks at the picture.)"""
+        sc = self.sc
+        px = sc.px
+        for k in range(rounds):
+            self._look = None
+            look = self.look()
+
+            def needed(xy, cols, t=tol * (1.0 if k == 0 else 0.8)):
+                return np.abs(self.seen(xy) - cols).max(axis=1) > t
+            for f in self.forms:
+                if f.finish < 0.5 or f.region.area() < 40:
+                    continue
+                r = 1.6 if k == 0 else 1.1
+                self._lay(f, r, f.along, margin=px(0.5 * r), hardness=0.5, thick=1.2, pickup=0.5, length=r * 3.2,
+                          spacing=r * 0.9, needed=needed, coverage=1.1)
+            self.dry()
 
     def _cut_in(self, f):
         """Carry a form's paint right up to its outline with a small brush, following the edge."""
@@ -311,7 +369,7 @@ class Studio:
                 ok &= ~r.inside(xy)
             return ok
         glaze = Paint.glaze("#3b2413", 1.0)
-        for r, th in ((22.0, 0.30), (9.0, 0.26)):
+        for r, th in ((22.0, 0.22), (11.0, 0.14)):
             fill_field(cv, (0, 0, sc.W, sc.H), None, lambda xy: 0.3 * np.sin(xy[:, 0] / px(170.0)),
                        Brush(radius=px(r), hardness=0.0, thick=th, pickup=0.0), rng, length=px(r * 5),
                        spacing=px(r * 0.28), inside=in_shadow, paint=glaze, coverage=1.6)

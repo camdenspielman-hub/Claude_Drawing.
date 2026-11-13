@@ -21,6 +21,7 @@ from . import scene as L
 TWO_PI = 2 * np.pi
 UP = np.array([0.0, 1.0, 0.0])
 STRAND = 0.115                      # radius of one strand of yarn, cm
+JAWF = -1.31                        # the level the skull's lower jaw rests at, in the skull's own frame
 WOOL = lin("#4f7896")
 WOOL_DEEP = lin("#243f55")
 WOOL_PALE = lin("#a9c3d6")
@@ -133,8 +134,9 @@ class Yarn:
             self.belts.append((axis, off, turns * STRAND / self.core, 0.016 * i))
         self.solid = Solid(np.eye(3), c, 1.0, centre=(0, 0, 0), radius=R + 0.8, rough=(0.07, 0.5), seed=3)
         self.solid.wound_ball([0, 0, 0], SQUASH, self.core, STRAND, self.belts)
-        self.needles = [(c + [-2.2, 10.4, -6.0], c + [1.6, -3.0, 5.2]),         # stuck in steeply from behind
-                        (c + [7.6, 4.6, -7.4], c + [-7.4, -3.55, 9.6])]         # the other run through low, its point out past the front
+        # two needles pushed through the upper part of the ball, crossing; neither touches the table
+        self.needles = [(c + [-7.5, 6.0, -2.0], c + [6.5, -1.8, 2.6]),
+                        (c + [-4.5, -0.9, 6.5], c + [4.0, 6.8, -4.5])]
         seen = self.solid.seen_from(sc.cam)
         self.seen = seen
         part = seen.outline(sc.W, sc.H)
@@ -224,9 +226,12 @@ class Yarn:
         # loose fibre standing off the wool catches the window where the surface turns away from us
         V = self.sc.cam.to_eye(P)
         graze = (1 - np.clip(np.sum(N * V, axis=1), 0, 1)) ** 3
-        fuzz = (graze * (0.15 + 0.85 * lit * np.clip(N @ lt.light.L + 0.35, 0, 1)))[:, None] * WOOL_PALE * 0.16
-        return lt.shade(alb, P, N, skip=("yarn",), ao=np.clip(groove, 0, 1) * (0.50 + 0.50 * np.clip(nest, 0, 1)),
-                        lit=lit, wrap=0.24, crowd=0.8, emit=fuzz)
+        fuzz = (graze * (0.02 + 0.98 * lit * np.clip(N @ lt.light.L + 0.25, 0, 1)))[:, None] * WOOL_PALE * 0.16
+        sits = 0.30 + 0.70 * smoothstep(0.05, 0.9, P[:, 1])              # the dark crease where it rests on the table
+        shut = np.clip(groove, 0, 1) * (0.50 + 0.50 * np.clip(nest, 0, 1)) * sits
+        # wool in shadow is still blue: the dim room fills it, and near the table a little warmth comes up
+        fill = alb * 0.085 * shut[:, None] + alb.mean(axis=1, keepdims=True) * np.array([0.05, 0.03, 0.015]) * (smoothstep(2.6, 0.3, P[:, 1]) * sits)[:, None]
+        return lt.shade(alb, P, N, skip=("yarn",), ao=shut, lit=lit, wrap=0.24, crowd=0.8, emit=fuzz + fill)
 
     def occluders(self):
         occ = [Ball("yarn", self.c, 1.0, scale=tuple(self.R * SQUASH))]
@@ -294,19 +299,39 @@ class Yarn:
         # only where the ball's own outline is the edge (not where something stands in front of it)
         ok &= ~self.ball_form.stencil.inside(pts - inward * px(3.0))
         pts, inward, P, N = pts[ok], inward[ok], P[ok], N[ok]
-        lit = lt.light.lit(P, ("yarn",)) * np.clip(N @ lt.light.L + 0.45, 0, 1)
-        cols = lt.shade(wool_albedo(P) * 1.5, P, N, skip=("yarn",), wrap=0.6)
+        lit = lt.light.lit(P, ("yarn",)) * np.clip(N @ lt.light.L + 0.20, 0, 1)
+        cols = lt.shade(wool_albedo(P) * 1.4, P, N, skip=("yarn",), wrap=0.35)
         hair = Batch(cv, Brush(radius=px(0.5), hardness=0.3, thick=0.35, pickup=0.2, press_radius=0.7))
         for i in range(len(pts)):
-            for _ in range(rng.poisson(0.25 + 1.5 * lit[i])):
+            for _ in range(rng.poisson(0.02 + 1.3 * lit[i] ** 1.5)):
                 out = -inward[i]
                 tang = np.array([-out[1], out[0]])
-                ln = px(rng.uniform(3, 13))
+                ln = px(rng.uniform(2, 8))
                 d = out * rng.uniform(0.25, 1.0) + tang * rng.normal(0, 0.9)
                 q = pts[i] + inward[i] * px(rng.uniform(0.5, 3.0))
                 hair.add(np.array([q, q + d * ln * 0.5 + tang * rng.normal(0, px(1.0)), q + d * ln + rng.normal(0, px(1.3), 2)]),
                          np.clip(cols[i] * rng.uniform(0.8, 1.25), 0, 1), [1.0, 0.6, 0.1], tscale=0.25 + 0.75 * lit[i])
         hair.flush()
+        # each needle's thin shadow on the table, running away from the window
+        Lw = lt.light.L
+        table = studio.regions.get("table")
+        shade = Batch(cv, Brush(radius=1.0, hardness=0.0, thick=0.4, pickup=0.0))
+        for a, b in self.needles:
+            line = a + (b - a) * np.linspace(0, 1, 160)[:, None]
+            Q = line - Lw * (line[:, 1] / Lw[1])[:, None]
+            q = cam.project(Q)
+            ok = (table.inside(q, px(2.0)) if table is not None else np.ones(len(q), bool)) & (lt.light.lit(Q + [0, 0.01, 0], ("needle",)) > 0.5)
+            ppc = cam.px_per_cm(Q)
+            idx = np.nonzero(ok)[0]
+            for run in np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1):
+                for a0 in range(0, len(run) - 1, 5):
+                    seg = run[a0:a0 + 6]
+                    if len(seg) >= 2:
+                        h = float(line[seg[0], 1])
+                        shade.add(q[seg], None, 1.0, ppc[seg[0]] * (0.14 + 0.045 * h),
+                                  paint=Paint.glaze("#1c1108", float(np.clip(1.1 - 0.10 * h, 0.25, 1.1))))
+        shade.flush(order=None)
+        cv.dry_now()
         for a, b in self.needles:
             ts = np.linspace(0, 1, 400)
             line = a + (b - a) * ts[:, None]
@@ -332,28 +357,35 @@ def strand_course(sc):
     sk = sc.objs.get("skull")
     y = s
     if sk is not None:
-        mouth_in = sk.world([9.06, -0.12, 1.34])        # the gap behind the fangs, on the side we see
-        inside = sk.world([8.2, -0.15, 0.3])
-        out_back = sk.world([1.5, -1.2, 0.8])
-        approach = sk.world([10.9, -1.2, 3.4])
-        lead = sk.world([9.7, -0.85, 2.0])
+        # up the outside of the lower jaw just behind the fangs, into the gap between fang and cheek teeth
+        approach = sk.world([9.6, JAWF + 0.12, 4.3])
+        lead = sk.world([9.2, JAWF + 0.14, 2.35])
+        over_jaw = sk.world([9.12, -0.42, 1.03])
+        mouth_in = sk.world([9.08, -0.08, 0.92])
+        inside = sk.world([8.5, -0.10, 0.4])
+        out_back = sk.world([1.5, JAWF + 0.12, 0.8])
+        for q in (approach, lead, out_back):
+            q[1] = y
     else:
         mouth_in = np.array([0.5, 1.0, 12.0]); inside = np.array([1.5, 1.0, 11.0]); out_back = np.array([8.0, s, 7.0])
-        approach = np.array([-1.5, s, 14.0]); lead = np.array([-0.3, 0.5, 13.0])
+        approach = np.array([-1.5, s, 14.0]); lead = np.array([-0.3, s, 13.0]); over_jaw = np.array([0.1, 0.6, 12.4])
     ball = np.array([L.YARN[0], 0.0, L.YARN[2]])
+    # slack wool does not lie in waves: it runs, kinks back on itself, and throws a flat loop
     a = np.array([
-        ball + [3.2, 1.6, 2.6], ball + [3.9, 0.45, 3.4], ball + [4.6, y, 4.4], ball + [6.0, y, 6.3], ball + [5.4, y, 8.6],
-        ball + [7.2, y, 9.9], ball + [10.0, y, 9.2], ball + [11.6, y, 7.6],
-        np.array([approach[0] - 1.6, y, approach[2] + 0.6]), np.array([approach[0], y, approach[2]]),
-        lead, mouth_in])
+        ball + [3.2, 1.6, 2.6], ball + [3.9, 0.45, 3.4], ball + [4.6, y, 4.4], ball + [6.2, y, 5.2], ball + [6.7, y, 6.9],
+        ball + [5.7, y, 8.2], ball + [6.5, y, 9.7], ball + [8.7, y, 9.9], ball + [9.9, y, 8.7], ball + [9.3, y, 7.3],
+        ball + [8.1, y, 7.6], ball + [8.5, y, 9.0], ball + [10.6, y, 9.5], ball + [12.3, y, 9.9],
+        0.5 * (ball + [12.3, y, 9.9] + approach), approach, lead, over_jaw, mouth_in])
     b = np.array([mouth_in, inside, out_back])
     blade = np.asarray(L.BLADE, dtype=np.float64)
-    c = np.array([out_back, out_back + [1.3, 0.0, 0.5], [out_back[0] + 2.6, y, out_back[2] + 1.6],
-                  [12.0, y, 6.6], [14.6, y, 7.8], [16.6, y, 7.2], blade + [-0.75, y, 0.85], blade + [-0.12, y, 0.30]])
+    # from under the back of the skull on to the blade, where it was cut: the two ends have sprung apart
+    c = np.array([out_back, out_back + [1.2, 0.0, 0.7], [out_back[0] + 2.4, y, out_back[2] + 2.3],
+                  [11.6, y, 8.9], [13.9, y, 8.2], [15.6, y, 8.9], blade + [-1.7, y, 2.1], blade + [-0.95, y, 1.25],
+                  blade + [-0.75, y, 0.55]])
     c[1, 1] = y * 2.2
-    d = np.array([blade + [0.20, y, -0.34], blade + [0.9, y, -0.2], blade + [1.5, y, 1.6], blade + [1.2, y, 5.0],
-                  blade + [1.9, y, 8.6], blade + [2.3, y, 11.0], blade + [2.45, y * 0.6, 11.75 + s],
-                  blade + [2.5, -0.9, 11.9 + s], blade + [2.42, -2.2, 11.95 + s]])
+    d = np.array([blade + [0.70, y, -0.45], blade + [1.25, y, 0.05], blade + [1.7, y, 1.6], blade + [1.25, y, 4.6],
+                  blade + [2.1, y, 7.4], blade + [1.7, y, 9.6], blade + [2.35, y, 11.0], blade + [2.45, y * 0.6, 11.4 + s],
+                  blade + [2.5, -0.9, 11.55 + s], blade + [2.42, -2.4, 11.6 + s]])
     return [(catmull(a, 0.1), False), (catmull(b, 0.1), True), (catmull(c, 0.1), False), (catmull(d, 0.1), False)]
 
 
@@ -429,7 +461,7 @@ class Strand:
                     ok &= ~(inside & ((pts[:, 2] < zlim) if zlim is not None else (cam.depth(pts) > cam.depth(sc.objs[owner].centre))))
             strands.append(dict(P=pts, N=N, ok=ok))
         # first its shadow: a thin soft dark beside it, on the side away from the window, wider where it rides up
-        shade = Batch(cv, Brush(radius=1.0, hardness=0.0, thick=0.55, pickup=0.0))
+        shade = Batch(cv, Brush(radius=1.0, hardness=0.0, thick=0.85, pickup=0.0))
         Lw = lt.light.L
         for st_ in strands:
             P, ok = st_["P"], st_["ok"]
@@ -446,8 +478,8 @@ class Strand:
                 for a0 in range(0, len(run) - 1, step):
                     seg = run[a0:a0 + step + 1]
                     if len(seg) >= 2:
-                        shade.add(q[seg] + [px(1.2), px(1.6)], None, 1.0, STRAND * ppc[seg[0]] * 1.25,
-                                  paint=Paint.glaze("#120a05", 1.6))
+                        shade.add(q[seg] + [px(1.6), px(2.2)], None, 1.0, STRAND * ppc[seg[0]] * 1.35,
+                                  paint=Paint.glaze("#0e0703", 2.4))
         shade.flush(order=None)
         cv.dry_now()
         paint_strands(sc, strands, lt, skip=("strand",), seed=40, fuzz=1.5, wrap=0.3)
@@ -460,10 +492,10 @@ class Strand:
             d /= max(np.linalg.norm(d), 1e-9)
             n = np.array([-d[1], d[0]])
             colr = lt.shade(wool_albedo(end[None]) * 1.15, end[None], np.array([[0.0, 1.0, 0.0]]), skip=("strand",), wrap=0.4)[0]
-            for spread in (-0.6, 0.6):
-                ln = px(rng.uniform(7, 11))
+            for spread in (-0.75, 0.1, 0.8):
+                ln = px(rng.uniform(9, 15))
                 hair.add(np.array([q - d * px(3), q + (d + n * spread * 0.5 * spread_k) * ln * 0.5, q + (d + n * spread * spread_k) * ln]),
-                         np.clip(colr * rng.uniform(0.9, 1.1), 0, 1), [1.0, 0.8, 0.3], 3.2)
+                         np.clip(colr * rng.uniform(0.85, 1.15), 0, 1), [1.0, 0.8, 0.25], 3.6)
             for _ in range(14):
                 spread = rng.normal(0, 0.5) * spread_k * 2
                 ln = px(rng.uniform(5, 14))

@@ -25,61 +25,65 @@ from . import scene as L
 BONE, UPPER_TEETH, JAW, LOWER_TEETH = 0, 1, 2, 3
 JAW_FLOOR = -1.31                     # the lowest edge of the lower jaw: it rests on this
 
-# the cheekbone arch: X, Y, Z of its middle line and half its height
+# the cheekbone arch: X, Y, Z of its middle line and half its depth. A thin bar: it leaves the
+# cheek low down, level with the teeth, and sweeps up and back, flaring far wider than the braincase
 _ARCH = np.array([
-    [8.15, 1.05, 1.35, 0.26], [7.75, 1.08, 1.85, 0.40], [7.20, 1.10, 2.45, 0.44], [6.50, 1.14, 3.00, 0.44],
-    [5.75, 1.20, 3.38, 0.42], [4.95, 1.26, 3.52, 0.36], [4.15, 1.30, 3.42, 0.30], [3.45, 1.32, 3.10, 0.27],
-    [2.95, 1.32, 2.65, 0.27], [2.60, 1.30, 2.15, 0.28], [2.30, 1.28, 1.60, 0.28]])
+    [8.05, 0.74, 1.40, 0.24], [7.60, 0.72, 1.95, 0.27], [7.00, 0.74, 2.55, 0.26], [6.30, 0.80, 3.05, 0.25],
+    [5.55, 0.92, 3.40, 0.25], [4.80, 1.06, 3.55, 0.23], [4.05, 1.20, 3.45, 0.20], [3.40, 1.32, 3.12, 0.19],
+    [2.90, 1.40, 2.65, 0.21], [2.55, 1.42, 2.15, 0.24], [2.25, 1.42, 1.60, 0.26]])
 # the lower jaw's bar
 _BAR = np.array([[9.78, -0.72, 0.10], [9.45, -0.80, 0.55], [8.70, -0.84, 1.00], [7.80, -0.85, 1.38],
                  [6.90, -0.84, 1.72], [6.00, -0.78, 2.00], [5.20, -0.66, 2.18]])
+ORBIT_C = np.array([6.35, 2.25, 2.10])        # the eye socket: a third of the skull's length, more than half its height
+ORBIT_R = np.array([1.50, 1.25, 1.40])
 
 
 def sculpt(s):
     """Model the skull in the solid s."""
     m = dict(mirror=True)
-    # ---- the braincase, forehead and muzzle: one flowing body, domed, the face short and steep
+    # ---- the braincase, forehead and muzzle: one flowing body, one arc from nose to nape, the face short
     s.lump([2.60, 2.30, 0], [2.55, 1.90, 2.30])
+    s.lump([4.10, 2.40, 0], [1.80, 1.72, 1.50], k=0.5)                       # no saddle behind the forehead
     s.lump([5.40, 2.65, 0], [1.90, 1.42, 1.25], k=0.5)
-    s.rod([6.50, 3.05, 0], [9.25, 1.50, 0], 0.88, 0.48, k=0.4)              # down the bridge of the nose
-    s.lump([8.40, 1.15, 0], [1.60, 0.95, 1.35], k=0.4)
-    s.lump([7.85, 0.95, 1.20], [0.90, 0.60, 0.70], k=0.35, **m)              # the cheek in front of the eye
-    s.lump([8.10, 0.55, 0], [1.90, 0.30, 1.30], k=0.3)                       # the palate
-    s.chain([[9.86, 0.42, 0.35], [9.50, 0.45, 1.05], [8.60, 0.50, 1.40], [7.60, 0.52, 1.75], [6.75, 0.52, 1.95]],
+    s.rod([6.50, 3.05, 0], [9.20, 1.50, 0], 0.88, 0.48, k=0.4)              # down the bridge of the nose
+    s.lump([8.42, 1.15, 0], [1.50, 0.95, 1.35], k=0.4)
+    s.lump([7.90, 0.92, 1.18], [0.85, 0.58, 0.68], k=0.35, **m)              # the cheek in front of the eye
+    s.lump([8.10, 0.55, 0], [1.85, 0.30, 1.30], k=0.3)                       # the palate
+    s.chain([[9.80, 0.42, 0.35], [9.46, 0.45, 1.05], [8.60, 0.50, 1.40], [7.60, 0.52, 1.75], [6.75, 0.52, 1.95]],
             0.36, k=0.3, **m)                                                # the ridge the upper teeth are set in
     s.lump([3.00, 0.80, 0], [2.60, 0.50, 1.70], k=0.4)                       # the floor of the braincase
     s.lump([2.30, 0.50, 1.15], [0.80, 0.50, 0.60], k=0.2, **m)               # the ear capsules
     s.lump([0.55, 0.88, 0.50], [0.28, 0.22, 0.26], k=0.35, **m)              # where the neck joined
     s.lump([1.35, 1.15, 1.40], [0.45, 0.40, 0.30], k=0.35, **m)
     s.rod([0.50, 3.75, 0], [2.60, 4.14, 0], 0.09, 0.05, k=0.18)              # the low crest along the crown
-    s.rod([9.20, 1.35, 1.12], [9.38, 0.45, 1.20], 0.30, 0.30, k=0.25, **m)   # the swelling over the fang's root
+    s.rod([9.16, 1.35, 1.10], [9.32, 0.45, 1.18], 0.30, 0.30, k=0.25, **m)   # the swelling over the fang's root
     # ---- the hollows
-    s.lump([4.30, 2.00, 2.70], [1.50, 1.35, 1.00], k=0.5, carve=True, **m)   # the temple
-    s.lump([6.55, 1.95, 2.05], [1.35, 1.30, 1.35], k=0.06, carve=True, **m)  # the eye socket, sharp-rimmed
-    s.lump([6.50, 1.55, 1.75], [1.25, 1.00, 1.32], k=0.15, carve=True, **m)  # deepening under the brow
-    s.rod([10.40, 1.32, 0], [8.90, 1.50, 0], 0.60, 0.42, k=0.1, carve=True)  # the bony nostril, running back into the nose
-    s.lump([9.80, 1.58, 0.22], [0.50, 0.40, 0.34], k=0.1, carve=True, **m)   # wider above: a heart, not a hole
-    s.lump([8.30, 1.25, 1.60], [0.13, 0.17, 0.25], k=0.05, carve=True, **m)  # the opening under the eye
+    s.lump([4.20, 2.05, 2.70], [1.50, 1.35, 1.00], k=0.5, carve=True, **m)   # the temple
+    s.lump(ORBIT_C, ORBIT_R, k=0.06, carve=True, **m)                        # the eye socket, sharp-rimmed
+    s.lump([6.35, 1.70, 1.80], [1.35, 1.05, 1.35], k=0.15, carve=True, **m)  # deepening under the brow
+    s.rod([10.30, 1.30, 0], [8.90, 1.50, 0], 0.46, 0.36, k=0.1, carve=True)  # the bony nostril, running back into the nose
+    s.lump([9.72, 1.52, 0.18], [0.42, 0.34, 0.28], k=0.1, carve=True, **m)   # wider above: a heart, not a hole
+    s.lump([8.25, 1.05, 1.62], [0.08, 0.12, 0.20], k=0.04, carve=True, **m)  # the small opening under the eye
     s.lump([0.02, 1.05, 0], [0.36, 0.33, 0.36], k=0.08, carve=True)          # where the spinal cord left
-    # ---- the spurs behind the eye, and the cheekbone arch (a strap: deep, and half as thick)
-    s.rod([5.75, 3.10, 1.00], [5.45, 2.75, 1.95], 0.32, 0.10, k=0.2, **m)
-    s.chain(_ARCH[:, :3], _ARCH[:, 3] + 0.10, k=0.10, flat=(2, 0.42), **m)
-    s.rod([5.80, 1.50, 3.40], [5.62, 2.10, 3.28], 0.26, 0.07, k=0.2, **m)
-    s.lump([2.70, 1.30, 2.20], [0.70, 0.30, 0.55], k=0.25, **m)              # the shelf the arch springs from
-    # ---- upper teeth
+    # ---- the two spurs that all but close the socket behind, and the cheekbone arch
+    s.rod([5.30, 3.30, 1.10], [5.16, 2.84, 2.30], 0.42, 0.15, k=0.25, **m)
+    s.chain(_ARCH[:, :3], _ARCH[:, 3] + 0.06, k=0.10, flat=(2, 0.55), **m)
+    s.rod([5.32, 1.15, 3.46], [5.22, 2.22, 3.08], 0.36, 0.13, k=0.22, **m)
+    s.lump([2.65, 1.42, 2.20], [0.70, 0.27, 0.55], k=0.25, **m)              # the shelf the arch springs from
+    # ---- upper teeth: three specks of incisor, the fang, and the blades behind it
     t = dict(group=UPPER_TEETH, mirror=True)
-    s.chain([[9.30, 0.60, 1.14], [9.44, -0.15, 1.22], [9.40, -0.92, 1.24]], [0.25, 0.19, 0.02], k=0.05, **t)
-    for z in (0.12, 0.33):
-        s.rod([10.05, 0.45, z], [10.10, 0.05, z], 0.085, 0.07, **t)
-    s.rod([10.00, 0.45, 0.57], [10.04, -0.05, 0.60], 0.12, 0.07, **t)
-    s.rod([8.95, 0.40, 1.33], [8.95, 0.12, 1.34], 0.09, 0.05, **t)
-    s.rod([8.35, 0.50, 1.50], [8.35, -0.14, 1.54], 0.24, 0.03, **t)
-    s.rod([8.60, 0.50, 1.44], [8.60, 0.15, 1.46], 0.15, 0.04, k=0.10, **t)
-    s.rod([8.10, 0.50, 1.58], [8.10, 0.12, 1.60], 0.15, 0.04, k=0.10, **t)
-    s.rod([7.85, 0.52, 1.68], [7.85, 0.08, 1.70], 0.17, 0.04, **t)           # the shearing tooth: three points
-    s.rod([7.50, 0.55, 1.78], [7.50, -0.27, 1.82], 0.25, 0.03, k=0.10, **t)
-    s.rod([7.05, 0.55, 1.92], [7.00, -0.12, 1.95], 0.23, 0.05, k=0.12, **t)
-    s.lump([6.72, 0.28, 1.92], [0.12, 0.14, 0.16], **t)
+    s.chain([[9.26, 0.60, 1.12], [9.36, -0.15, 1.24], [9.22, -0.92, 1.26]], [0.25, 0.19, 0.02], k=0.05, **t)
+    for z, r in ((0.11, 0.050), (0.27, 0.052), (0.46, 0.070)):
+        s.rod([9.98, 0.34, z], [10.02, 0.07, z], r, r * 0.8, **t)
+    s.rod([8.92, 0.40, 1.33], [8.92, 0.14, 1.34], 0.08, 0.05, **t)
+    f6 = dict(flat=(2, 0.6))
+    s.rod([8.35, 0.50, 1.50], [8.35, -0.22, 1.54], 0.31, 0.04, **f6, **t)
+    s.rod([8.62, 0.50, 1.44], [8.62, 0.12, 1.46], 0.17, 0.05, k=0.10, **f6, **t)
+    s.rod([8.08, 0.50, 1.58], [8.08, 0.08, 1.60], 0.17, 0.05, k=0.10, **f6, **t)
+    s.rod([7.88, 0.52, 1.68], [7.88, 0.02, 1.70], 0.20, 0.05, **f6, **t)     # the shearing tooth: three points, one blade
+    s.rod([7.52, 0.55, 1.78], [7.52, -0.36, 1.82], 0.33, 0.04, k=0.12, **f6, **t)
+    s.rod([7.06, 0.55, 1.92], [7.02, -0.20, 1.95], 0.30, 0.06, k=0.14, **f6, **t)
+    s.lump([6.70, 0.28, 1.92], [0.12, 0.14, 0.16], **t)
     # ---- the lower jaw
     j = dict(group=JAW, mirror=True)
     for sgn in (1, -1):
@@ -89,23 +93,22 @@ def sculpt(s):
     s.rod([4.40, 0.00, 2.30], [3.15, 0.40, 2.30], 0.45, 0.20, k=0.3, flat=(2, 0.35), **j)
     s.rod([3.10, 0.42, 1.85], [3.10, 0.42, 2.60], 0.17, 0.17, k=0.15, **j)   # the hinge
     s.rod([4.60, -0.65, 2.25], [3.25, -0.60, 2.30], 0.35, 0.14, k=0.3, flat=(2, 0.40), **j)
-    s.lump([4.70, 0.35, 2.62], [0.80, 0.85, 0.20], k=0.2, carve=True, **j)
-    # ---- lower teeth
+    # ---- lower teeth: the lower fang rises in front of the upper one; the blades shear inside the upper row
     t = dict(group=LOWER_TEETH, mirror=True)
-    s.chain([[9.50, -0.55, 0.62], [9.70, 0.00, 0.80], [9.68, 0.50, 0.88]], [0.20, 0.16, 0.02], k=0.05, **t)
-    for z in (0.10, 0.25, 0.40):
-        s.rod([9.92, -0.50, z], [9.98, -0.14, z], 0.06, 0.06, **t)
-    s.rod([8.75, -0.50, 1.00], [8.75, -0.02, 1.03], 0.20, 0.03, **t)
-    s.rod([8.20, -0.50, 1.22], [8.20, 0.02, 1.25], 0.22, 0.03, **t)
-    s.rod([7.98, -0.50, 1.30], [7.98, -0.25, 1.32], 0.14, 0.04, k=0.08, **t)
-    s.rod([7.55, -0.50, 1.45], [7.60, 0.05, 1.47], 0.23, 0.04, **t)
-    s.rod([7.15, -0.50, 1.60], [7.10, 0.12, 1.62], 0.24, 0.04, k=0.10, **t)
+    s.chain([[9.52, -0.60, 0.72], [9.74, 0.00, 0.98], [9.72, 0.50, 1.08]], [0.21, 0.17, 0.02], k=0.05, **t)
+    for z in (0.09, 0.22, 0.36):
+        s.rod([9.90, -0.42, z], [9.95, -0.18, z], 0.045, 0.04, **t)
+    s.rod([8.75, -0.50, 1.02], [8.75, 0.04, 1.05], 0.25, 0.04, **f6, **t)
+    s.rod([8.20, -0.50, 1.22], [8.20, 0.10, 1.25], 0.28, 0.04, **f6, **t)
+    s.rod([7.96, -0.50, 1.30], [7.96, -0.20, 1.32], 0.16, 0.05, k=0.08, **f6, **t)
+    s.rod([7.58, -0.50, 1.45], [7.62, 0.16, 1.47], 0.31, 0.05, **f6, **t)
+    s.rod([7.14, -0.50, 1.60], [7.10, 0.22, 1.62], 0.31, 0.05, k=0.12, **f6, **t)
 
 
-BONE_COL = lin("#cdc3a8")
+BONE_COL = lin("#dcd3ba")
 BONE_STAIN = lin("#9c7f4d")
 BONE_THIN = lin("#bdb6a6")
-ENAMEL = lin("#e2dbc6")
+ENAMEL = lin("#e8dfc4")
 
 
 class Skull:
@@ -233,16 +236,16 @@ class Skull:
         shut = np.clip(open_small, 0, 1) ** 0.8 * (0.12 + 0.88 * np.clip(open_big, 0, 1) ** 1.6)
         # the eye socket and the nostril are the darkest things in the picture: the brow and the
         # nasal bones keep the window out of them, whatever a stray ray might do
-        q = np.linalg.norm((np.abs(Pl * [1, 1, 1]) * 0 + (Pl * np.array([1, 1, 0]) + np.abs(Pl) * np.array([0, 0, 1]))
-                            - np.array([6.55, 1.95, 2.05])) / np.array([1.35, 1.30, 1.35]), axis=1)
-        socket = smoothstep(1.14, 0.98, q) * smoothstep(1.95, 1.45, np.abs(Pl[:, 2]))
-        nostril = (smoothstep(9.86, 9.60, Pl[:, 0]) * smoothstep(0.62, 0.50, np.hypot(Pl[:, 1] - 1.42, Pl[:, 2]))
+        half = np.stack([Pl[:, 0], Pl[:, 1], np.abs(Pl[:, 2])], 1)
+        q = np.linalg.norm((half - ORBIT_C) / ORBIT_R, axis=1)
+        socket = smoothstep(1.12, 0.98, q) * smoothstep(2.05, 1.50, np.abs(Pl[:, 2]))
+        nostril = (smoothstep(9.80, 9.55, Pl[:, 0]) * smoothstep(0.50, 0.38, np.hypot(Pl[:, 1] - 1.40, Pl[:, 2]))
                    * smoothstep(8.6, 9.0, Pl[:, 0]))
         hollow = np.maximum(socket, nostril)
         lit = lit * (1 - 0.86 * hollow)
-        shut = shut * (1 - 0.62 * hollow)
+        shut = shut * (1 - 0.84 * hollow)
         out = np.empty((len(P), 3))
-        for sel, spec, gloss in ((~tooth, 0.085, 18.0), (tooth, 0.45, 60.0)):
+        for sel, spec, gloss in ((~tooth, 0.045, 14.0), (tooth, 0.40, 60.0)):
             if sel.any():
                 out[sel] = lt.shade(alb[sel], P[sel], N[sel], skip=skip, ao=shut[sel], lit=lit[sel], spec=spec,
                                     gloss=gloss, crowd=0.8, wrap=0.14)
@@ -271,7 +274,7 @@ class Skull:
             ok = ~self.hides(P) & region.inside(xy, px(1.0)) & (np.sum(s.normal(P) * cam.to_eye(P), axis=1) > 0.12)
             return xy, ok
 
-        def seam(guide, zig=1.0, tone="#8a7657", thick=0.35, r=0.5):
+        def seam(guide, zig=1.0, tone="#9a876a", thick=0.30, r=0.45):
             xy, ok = on_bone(guide)
             n = len(xy)
             if n < 6:
@@ -288,33 +291,21 @@ class Skull:
             for run in np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1):
                 if len(run) < 4:
                     continue
-                pr = 0.25 + 0.75 * np.clip(0.55 + 0.6 * np.sin(np.linspace(0, 7, len(run)) + rng.uniform(0, 6)), 0, 1)
+                pr = 0.55 + 0.45 * np.clip(0.55 + 0.6 * np.sin(np.linspace(0, 5, len(run)) + rng.uniform(0, 6)), 0, 1)
                 cv.stroke(xy[run], Paint.opaque(tone), Brush(radius=px(r), hardness=0.4, thick=thick, pickup=0.2,
                           press_radius=0.5), pr)
 
-        seam([[0.7, 3.8, 0.02], [2.0, 4.0, 0.0], [3.2, 4.0, 0.03], [4.3, 3.9, 0.0]], zig=0.9)             # along the crown
-        seam([[4.35, 2.9, -1.5], [4.3, 3.6, -0.8], [4.4, 3.9, 0.0], [4.3, 3.6, 0.8], [4.35, 2.9, 1.5], [4.5, 2.2, 1.9]],
-             zig=1.2, thick=0.4)                                                                         # across it
-        seam([[4.4, 3.9, 0.0], [5.6, 3.8, 0.02], [6.8, 3.5, 0.0], [7.6, 3.1, 0.0]], zig=0.5, thick=0.28)  # down the forehead
-        seam([[7.6, 3.1, 0.0], [8.4, 2.6, 0.01], [9.3, 2.1, 0.0]], zig=0.35, thick=0.33)                  # between the nasal bones
+        seam([[0.7, 3.9, 0.02], [2.0, 4.15, 0.0], [3.2, 4.15, 0.03], [4.3, 4.1, 0.0]], zig=0.5)            # along the crown
+        seam([[4.4, 3.0, -1.5], [4.35, 3.75, -0.8], [4.4, 4.1, 0.0], [4.35, 3.75, 0.8], [4.4, 3.0, 1.5], [4.6, 2.3, 1.8]],
+             zig=0.7, thick=0.34)                                                                        # across it
+        seam([[4.4, 4.1, 0.0], [5.6, 4.0, 0.02], [6.8, 3.6, 0.0], [7.6, 3.1, 0.0]], zig=0.3, thick=0.24)  # down the forehead
+        seam([[7.6, 3.1, 0.0], [8.4, 2.5, 0.01], [9.2, 2.0, 0.0]], zig=0.2, thick=0.26)                   # between the nasal bones
         for sg in (1, -1):
-            seam([[7.6, 3.0, 0.1 * sg], [8.3, 2.5, 0.45 * sg], [9.3, 1.95, 0.42 * sg]], zig=0.4, thick=0.30)
-            seam([[9.6, 0.9, 0.75 * sg], [9.3, 1.3, 1.25 * sg], [9.0, 1.8, 0.95 * sg]], zig=0.4, thick=0.3)
-            seam([[4.3, 2.4, 2.0 * sg], [3.4, 2.75, 2.25 * sg], [2.3, 2.6, 2.4 * sg], [1.5, 2.0, 2.2 * sg]], zig=0.8, thick=0.3)
-            seam([[5.0, 1.15, 3.6 * sg], [4.6, 0.85, 3.6 * sg], [4.3, 0.7, 3.5 * sg]], zig=0.5, thick=0.3)  # across the arch
-            seam([[7.9, 1.3, 1.9 * sg], [7.6, 0.9, 2.2 * sg], [7.4, 0.55, 2.3 * sg]], zig=0.5, thick=0.3)
+            seam([[7.6, 3.0, 0.1 * sg], [8.3, 2.45, 0.42 * sg], [9.2, 1.9, 0.40 * sg]], zig=0.25, thick=0.26)
+            seam([[9.5, 0.9, 0.75 * sg], [9.25, 1.3, 1.2 * sg], [9.0, 1.8, 0.92 * sg]], zig=0.25, thick=0.26)
+            seam([[4.3, 2.5, 2.0 * sg], [3.4, 2.85, 2.25 * sg], [2.3, 2.7, 2.4 * sg], [1.5, 2.1, 2.2 * sg]], zig=0.5, thick=0.26)
+            seam([[4.9, 1.3, 3.6 * sg], [4.55, 1.05, 3.6 * sg], [4.3, 0.95, 3.5 * sg]], zig=0.3, thick=0.26)  # across the arch
         cv.dry_now()
-
-        # fine pores and specks over the bone, each almost nothing
-        ys, xs = np.nonzero(studio.form("skull_bone").region.mask | studio.form("skull_jaw").region.mask)
-        if len(xs):
-            pick = rng.integers(0, len(xs), int(520 * sc.s ** 0 ))
-            speck = Batch(cv, Brush(radius=px(0.5), hardness=0.5, thick=0.3, pickup=0.2))
-            for i in pick:
-                q = np.array([xs[i] + rng.random(), ys[i] + rng.random()])
-                speck.add(np.array([q, q + rng.normal(0, px(0.5), 2)]), None, 1.0, rng.uniform(0.6, 1.4),
-                          paint=Paint.opaque("#7f6c50"), tscale=rng.uniform(0.3, 1.0))
-            speck.flush()
 
         # two little openings on the side of the chin
         def hole(P_local, w, h, ang=0.0):
