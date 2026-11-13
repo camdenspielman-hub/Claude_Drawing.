@@ -94,7 +94,7 @@ rounds two and three, and the state after the last round's corrections, are in
 | `engine/solid.cpp` | Sculpted solids: lumps and rods joined and carved smoothly, and a wound ball of strand. Answers "where does this line of sight touch you, which way do you face there, do you see the window, how shut in are you?" |
 | `atelier/` | The toolkit: perspective and constructed shadows (`geom.py`), the light logic (`shading.py`), constructed forms (`forms.py`), sculpted ones (`solid.py`), outlines (`stencil.py`), ways of laying strokes over a form (`brushwork.py`), and the stages of a picture (`studio.py`). |
 | `still_life/` | The picture: the set-up (`scene.py`), wall and table (`setting.py`), one file per object, and `paint.py`, which runs the stages. |
-| `studies/` | Studies: engine tests, the first block-ins, and `skull_turn.py`, which lays the sculpted skull in broadly from the side, above, front and back to check its anatomy. |
+| `studies/` | Studies. `skull_turn.py` lays the sculpted skull in broadly from the side, above, front and back to check its anatomy; `probe.py` prints what the light logic would mix at given spots. The engine tests and block-ins are from the first version and are kept as they were; some no longer run against the current toolkit. |
 | `tools/timelapse.py` | Turns the frames recorded during painting into the GIF and MP4. |
 
 ## Painting it again
@@ -112,7 +112,7 @@ python3 tools/timelapse.py frames out/still_life.png out/timelapse
 ```
 
 It needs a C++ compiler with OpenMP, Python 3 with NumPy and Pillow, and `ffmpeg` for the
-time-lapse. The full canvas is 3000 x 2000 pixels: RUNSTATS.
+time-lapse. The full canvas is 3000 x 2000 pixels: about 1.6 million strokes, which take around nine minutes to lay on four cores.
 
 The time-lapse shows one complete run of the finished program, from bare ground to the last
 stroke. It does not show the many earlier attempts the program was revised through.
