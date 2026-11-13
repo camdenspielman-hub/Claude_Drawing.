@@ -43,7 +43,7 @@ def scatter():
         (-2.2, -5.0, 0.00, 0.03, 0.01, "copper"),
         # strays toward the front, and the ones the skull's jaw came down beside
         (-4.2, 3.6, 0.00, 0.02, 0.02, "gold"), (-0.6, 5.2, 0.00, 0.01, 0.00, "angel"), (3.4, 4.3, 0.00, 0.00, 0.02, "penny"),
-        (-6.2, 6.25, 0.00, 0.01, 0.01, "six"), (4.3, 5.7, 0.00, 0.03, 0.00, "shill"), (6.4, 5.2, 0.00, 0.00, 0.02, "copper"),
+        (-6.2, 5.3, 0.00, 0.01, 0.01, "six"), (4.3, 5.7, 0.00, 0.03, 0.00, "shill"), (6.4, 5.2, 0.00, 0.00, 0.02, "copper"),
         (1.9, 3.6, 0.00, 0.02, 0.01, "shill"),
     ]
     return lay
@@ -70,7 +70,7 @@ def relief(a, b, kind, seed):
         crown = 1 - smoothstep(0.5, 1.0, np.hypot((a - 0.02) / 0.26, (b - 0.40) / 0.12))
         neck = 1 - smoothstep(0.5, 1.0, np.hypot((a - 0.06) / 0.20, (b + 0.38) / 0.20))
         device = 0.6 * np.maximum(head, np.maximum(crown, neck))
-    return 0.6 * border + 0.4 * legend + device
+    return 0.25 * border + 0.4 * legend + device
 
 
 class Coins:
@@ -157,8 +157,8 @@ class Coins:
                     green = (low * smoothstep(0.45, 0.8, mottle))[:, None]
                     matte = lin("#6b3f28") * (1 - 0.7 * green) + k["grime"] * 0.7 * green
                 else:                                    # silver is grey, rubbed bright on the high points, toned dark in the low
-                    dirt = np.clip(0.32 + 0.33 * low, 0, 0.9)
-                    matte = k["tint"] * 0.50 * (1 - 0.7 * (low * (0.75 + 0.25 * mottle))[:, None]) + k["grime"] * 0.7 * (low * (0.75 + 0.25 * mottle))[:, None]
+                    dirt = np.clip(0.46 + 0.30 * low, 0, 0.9)
+                    matte = k["tint"] * np.array([1.07, 1.0, 0.88]) * 0.50 * (1 - 0.7 * (low * (0.75 + 0.25 * mottle))[:, None]) + k["grime"] * 0.7 * (low * (0.75 + 0.25 * mottle))[:, None]
                 return lt.mirror(k["tint"], P, Nb, skip=("coin%d" % k["i"],), rough=0.20, taps=5, dirt=(matte, dirt),
                                  rng=np.random.default_rng(len(P) + k["i"]))
             f = Form("coin%d" % k["i"], face, (-1.08, 1.08), (-1.08, 1.08), col, owner="coins", size=2.8, grid=30, along="u",
@@ -242,7 +242,7 @@ class Coins:
                 dark.add(xy_low[run] + [px(0.8), px(1.2)], None, np.sin(np.linspace(0.25, np.pi - 0.25, len(run))) ** 0.5,
                          paint=Paint.glaze("#120a05", 2.0))
             # light along the rim toward the window: broken, never a drawn circle
-            toward = (radial @ Lw > 0.25) & seen & (lit > 0.4)
+            toward = (radial @ Lw > 0.62) & seen & (lit > 0.4)
             hi = np.clip(lt.tone(k["tint"] * 1.9 + 0.25), 0, 1)
             idx = np.nonzero(toward & (rng.random(len(ang)) > 0.22))[0]
             for run in np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1):

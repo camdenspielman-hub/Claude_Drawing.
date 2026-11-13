@@ -27,8 +27,8 @@ def window_pool(P):
     dying away to the sides and into the depth of the room."""
     x, z = P[:, 0], P[:, 2]
     side = np.exp(-((x - 1.5) / 27.0) ** 2)
-    depth = smoothstep(-26.0, 9.0, z) ** 1.5
-    return 0.06 + 0.94 * side * (0.10 + 0.90 * depth)
+    depth = smoothstep(-26.0, 9.0, z) ** 1.2
+    return 0.06 + 0.94 * side * (0.26 + 0.74 * depth)
 
 
 def wall_linear(P, lit=1.0):
@@ -197,6 +197,13 @@ class Setting:
                        Brush(kind="blender", radius=px(r), hardness=0.0, pickup=0.5, load=0.5), rng, length=px(r * 5),
                        spacing=px(r * 0.5), stencil=wall, margin=px(r * 0.75), inside=near, paint=Paint.opaque("#000000"), curl=0.3)
         studio._to_border(wf, 10.0)
+        # last, look the wall over for any chip of bare ground the brush skipped, and touch it in
+        for r in (6.0, 3.0):
+            studio._look = None
+            missed = lambda xy, cols: np.abs(studio.seen(xy) - cols).max(axis=1) > 0.06
+            studio._lay(wf, r, "u", margin=px(0.45 * r), hardness=0.2, thick=1.25, pickup=0.3, length=r * 3.5,
+                        spacing=r * 0.8, needed=missed, coverage=1.3)
+        studio._look = None
 
     def wear(self, studio):
         """What use has done to the table: knife marks, a crack running in from the edge, the pale

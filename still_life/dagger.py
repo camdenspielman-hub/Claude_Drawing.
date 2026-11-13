@@ -1,4 +1,5 @@
-"""The blade driven into the table: a left-hand dagger of the Saxon kind, about 1600.
+"""The blade driven into the table: a small dagger in the manner of the Saxon left-hand daggers of
+about 1600, though a good deal shorter than those (it is some 27 cm overall).
 
 A flattened-diamond blade with a short flat base stamped with a maker's mark; a guard of two
 rope-twisted iron bars drooping toward the blade, with a twisted ring standing out in front; a
@@ -150,7 +151,7 @@ class Dagger:
                 crest = 0.5 + 0.5 * np.cos(ph * 3.0)
                 tint = IRON * crest[:, None] + GILT * 0.75 * (1 - crest[:, None])
                 Nb = normalize(N + (0.45 * np.sin(ph * 3.0))[:, None] * self.bw * 0.0 + 0.0)
-                bump = 0.40 * np.sin(ph * 3.0)
+                bump = 0.26 * np.sin(ph * 3.0) * (0.6 + 0.6 * fbm3(P * 2.2, 1.0, 2, 153))
                 tang = normalize(np.cross(N, a))
                 Nb = normalize(N + bump[:, None] * tang)
                 dirt = np.clip(0.30 + 0.35 * (1 - crest) * 0 + 0.3 * fbm3(P * 5.0, 1.0, 2, 141), 0, 0.9)
@@ -193,7 +194,7 @@ class Dagger:
             turns = np.where(collar, v * 3.2 + u * 0.5, v * 8.5 + 0.35 * np.sin(v * 2.3 + u) + 0.2 * np.sin(v * 5.1 + 2 * u))
             ph = turns * TWO_PI
             worn = 0.35 + 0.65 * fbm3(P * 1.7, 1.0, 2, 151)
-            bump = np.where(collar, 0.55, 0.36) * np.sin(ph) * worn
+            bump = np.where(collar, 0.45, 0.28) * np.sin(ph) * worn
             Nb = normalize(N + bump[:, None] * a)
             # a fine second twist within each turn
             fine = 0.5 + 0.5 * np.sin(u * 14.0 + ph * 0.5)
@@ -217,14 +218,14 @@ class Dagger:
             dr = (pear(v + 1e-3) - pear(v - 1e-3)) / 2e-3
             dflute = 0.12 * 0.5 * 7 * np.sin(7 * (u + 0.75 * v))
             tang = -np.sin(u)[..., None] * e1 + np.cos(u)[..., None] * e2
-            N = normalize(rad - dr[..., None] * a - (dflute * 0.9)[..., None] * tang)
+            N = normalize(rad - dr[..., None] * a - (dflute * 0.5)[..., None] * tang)
             return P, N
 
         def pommel_tint(P, N, u, v):
             hollow = 0.5 + 0.5 * np.cos(7 * (u + 0.75 * v))
             tint = IRON * (1 - 0.5 * hollow[:, None]) + GILT * 0.6 * 0.5 * hollow[:, None]
             return tint, np.clip(0.30 + 0.30 * fbm3(P * 5.0, 1.0, 2, 149), 0, 0.9), N
-        add("pommel", pommel, (0, TWO_PI), (0, 2.1), iron(pommel_tint, ("dagger:pommel",), rough=0.34), size=2.4, grid=70,
+        add("pommel", pommel, (0, TWO_PI), (0, 2.1), iron(pommel_tint, ("dagger:pommel",), rough=0.24), size=2.4, grid=70,
             along="u", tol=0.02, broken=0.02)
         add("button", forms.sphere(pom_base + 2.18 * a, 0.2), (0, TWO_PI), (-np.pi / 2, np.pi / 2),
             iron(lambda P, N, u, v: (IRON, np.full(len(P), 0.4), N), ("dagger:pommel",)), size=1.2, grid=14, along="u", dead=False)
@@ -312,11 +313,6 @@ class Dagger:
         nick = np.ones(len(ss))
         for c in rng.uniform(0.25, 0.9, 4):
             nick *= 1 - np.exp(-((np.linspace(0, 1, len(ss)) - c) / 0.012) ** 2)
-        # the honed edge catches the window only along a stretch or two, never from end to end
-        tt = np.linspace(0, 1, len(ss))
-        catch = np.clip(np.sin(tt * 7.0 + 0.8) * 1.6 - 0.5, 0, 1) * smoothstep(0.05, 0.3, tt) * nick
-        cv.stroke(edge - [lit_sign * px(0.8), 0], Paint.opaque("#dfe2dc"), Brush(radius=px(0.6), hardness=0.5, thick=1.2, pickup=0.1),
-                  catch * 0.9)
         cv.dry_now()
 
         # ---- where it went into the oak
@@ -328,10 +324,10 @@ class Dagger:
         along_grain = np.array([1.0, 0.0, 0.0])
         mid_p = 0.5 * (p_l + p_r)
         # the slot opens along the grain, a little longer than the blade is wide, with crushed fibres at its lips
-        slot = np.array([mid_p - along_grain * 0.80, mid_p - along_grain * 0.3 + [0, 0, 0.05], mid_p + along_grain * 0.3 + [0, 0, 0.05],
-                         mid_p + along_grain * 0.70])
-        cv.stroke(cam.project(slot) + [0, px(1.5)], Paint.opaque("#0b0705"), Brush(radius=px(1.7), hardness=0.4, thick=1.4, press_radius=0.7),
-                  [0.25, 1.0, 1.0, 0.2])
+        half = 0.5 * np.linalg.norm(p_r - p_l) + 0.12
+        slot = np.array([mid_p - along_grain * half, mid_p + [0, 0, 0.04], mid_p + along_grain * half])
+        cv.stroke(cam.project(slot) + [0, px(1.0)], Paint.opaque("#120b07"), Brush(radius=px(1.8), hardness=0.3, thick=1.2, press_radius=0.75),
+                  [0.15, 1.0, 0.15])
         lift = Batch(cv, Brush(radius=px(0.7), hardness=0.5, thick=1.3, pickup=0.1, press_radius=0.6))
         for _ in range(5):
             b0 = mid_p + along_grain * rng.uniform(-0.7, 0.7) + np.array([0, 0, rng.choice([-1, 1]) * rng.uniform(0.05, 0.10)])

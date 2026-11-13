@@ -52,7 +52,7 @@ def paint_strands(sc, strands, lt, skip=(), seed=0, fuzz=1.0, wrap=0.2, lit_dash
         P, N, ok = s["P"], s["N"], s["ok"]
         xy = cam.project(P)
         ppc = cam.px_per_cm(P)
-        col = lt.shade(wool_albedo(P, seed), P, N, skip=skip, wrap=wrap, crowd=0.7)
+        col = lt.shade(wool_albedo(P, seed) * np.asarray(s.get("gain", 1.0)).reshape(-1, 1), P, N, skip=skip, wrap=wrap, crowd=0.7)
         facing_light = np.clip(N @ Lw, 0, 1) * lt.light.lit(P, skip)
         to_light = cam.project(P + 0.5 * Lw) - xy
         to_light /= np.maximum(np.linalg.norm(to_light, axis=1, keepdims=True), 1e-9)
@@ -135,8 +135,8 @@ class Yarn:
         self.solid = Solid(np.eye(3), c, 1.0, centre=(0, 0, 0), radius=R + 0.8, rough=(0.07, 0.5), seed=3)
         self.solid.wound_ball([0, 0, 0], SQUASH, self.core, STRAND, self.belts)
         # two needles pushed through the upper part of the ball, crossing; neither touches the table
-        self.needles = [(c + [-7.5, 6.0, -2.0], c + [6.5, -1.8, 2.6]),
-                        (c + [-4.5, -0.9, 6.5], c + [4.0, 6.8, -4.5])]
+        self.needles = [(c + [-5.5, 6.0, -2.0], c + [4.5, -1.2, 3.0]),
+                        (c + [-6.6, 4.5, 0.6], c + [3.2, -2.0, 5.2])]
         seen = self.solid.seen_from(sc.cam)
         self.seen = seen
         part = seen.outline(sc.W, sc.H)
@@ -155,8 +155,8 @@ class Yarn:
 
             def steel(P, N, u, v, i=i):
                 lt = self.lt or sc.lt
-                return lt.mirror(np.array([0.66, 0.67, 0.68]), P, N, skip=("needle%d" % i,), rough=0.06, taps=3,
-                                 dirt=(lin("#3a3836"), np.full(len(P), 0.22)), rng=np.random.default_rng(len(P) + i))
+                return lt.mirror(np.array([0.70, 0.71, 0.72]), P, N, skip=("needle%d" % i,), rough=0.06, taps=3,
+                                 dirt=(lin("#8c8a84"), np.full(len(P), 0.42)))
 
             def shows(P, N, u, v):      # not where it runs through the wool, nor behind it
                 shape = np.shape(P)[:-1]
@@ -230,7 +230,7 @@ class Yarn:
         sits = 0.30 + 0.70 * smoothstep(0.05, 0.9, P[:, 1])              # the dark crease where it rests on the table
         shut = np.clip(groove, 0, 1) * (0.50 + 0.50 * np.clip(nest, 0, 1)) * sits
         # wool in shadow is still blue: the dim room fills it, and near the table a little warmth comes up
-        fill = alb * 0.085 * shut[:, None] + alb.mean(axis=1, keepdims=True) * np.array([0.05, 0.03, 0.015]) * (smoothstep(2.6, 0.3, P[:, 1]) * sits)[:, None]
+        fill = alb * 0.17 * (0.35 + 0.65 * shut)[:, None] + alb.mean(axis=1, keepdims=True) * np.array([0.07, 0.04, 0.02]) * (smoothstep(2.6, 0.3, P[:, 1]) * sits)[:, None]
         return lt.shade(alb, P, N, skip=("yarn",), ao=shut, lit=lit, wrap=0.24, crowd=0.8, emit=fuzz + fill)
 
     def occluders(self):
@@ -357,13 +357,13 @@ def strand_course(sc):
     sk = sc.objs.get("skull")
     y = s
     if sk is not None:
-        # up the outside of the lower jaw just behind the fangs, into the gap between fang and cheek teeth
-        approach = sk.world([9.6, JAWF + 0.12, 4.3])
-        lead = sk.world([9.2, JAWF + 0.14, 2.35])
-        over_jaw = sk.world([9.12, -0.42, 1.03])
-        mouth_in = sk.world([9.08, -0.08, 0.92])
-        inside = sk.world([8.5, -0.10, 0.4])
-        out_back = sk.world([1.5, JAWF + 0.12, 0.8])
+        # it comes in round the front of the jaw, up its outer face, and over into the gap just behind the fangs
+        approach = sk.world([9.9, JAWF + 0.12, 3.9])
+        lead = sk.world([9.25, JAWF + 0.14, 2.2])
+        over_jaw = sk.world([8.86, -0.42, 1.13])
+        mouth_in = sk.world([8.84, -0.04, 1.02])
+        inside = sk.world([8.2, -0.10, 0.4])
+        out_back = sk.world([4.0, JAWF + 0.12, 2.75])           # out again under the angle of the jaw, on the side we see
         for q in (approach, lead, out_back):
             q[1] = y
     else:
@@ -376,13 +376,15 @@ def strand_course(sc):
         ball + [5.7, y, 8.2], ball + [6.5, y, 9.7], ball + [8.7, y, 9.9], ball + [9.9, y, 8.7], ball + [9.3, y, 7.3],
         ball + [8.1, y, 7.6], ball + [8.5, y, 9.0], ball + [10.6, y, 9.5], ball + [12.3, y, 9.9],
         0.5 * (ball + [12.3, y, 9.9] + approach), approach, lead, over_jaw, mouth_in])
-    b = np.array([mouth_in, inside, out_back])
+    b = np.array([mouth_in, inside, 0.5 * (inside + out_back) + [0, 0.0, 0], out_back])
     blade = np.asarray(L.BLADE, dtype=np.float64)
-    # from under the back of the skull on to the blade, where it was cut: the two ends have sprung apart
-    c = np.array([out_back, out_back + [1.2, 0.0, 0.7], [out_back[0] + 2.4, y, out_back[2] + 2.3],
-                  [11.6, y, 8.9], [13.9, y, 8.2], [15.6, y, 8.9], blade + [-1.7, y, 2.1], blade + [-0.95, y, 1.25],
-                  blade + [-0.75, y, 0.55]])
-    c[1, 1] = y * 2.2
+    # from under the jaw on to the blade, where it was cut: drawn nearly straight, the cut end sprung a little aside
+    end = blade + [-0.80, y, 0.60]
+    run = end - out_back
+    side = np.array([-run[2], 0.0, run[0]]) / np.linalg.norm(run)
+    c = np.array([out_back, out_back + 0.12 * run + 0.25 * side, out_back + 0.35 * run - 0.20 * side,
+                  out_back + 0.60 * run + 0.22 * side, out_back + 0.82 * run - 0.10 * side, end + [-0.5, 0, 0.35], end])
+    c[:, 1] = y
     d = np.array([blade + [0.70, y, -0.45], blade + [1.25, y, 0.05], blade + [1.7, y, 1.6], blade + [1.25, y, 4.6],
                   blade + [2.1, y, 7.4], blade + [1.7, y, 9.6], blade + [2.35, y, 11.0], blade + [2.45, y * 0.6, 11.4 + s],
                   blade + [2.5, -0.9, 11.55 + s], blade + [2.42, -2.4, 11.6 + s]])
@@ -459,7 +461,8 @@ class Strand:
                 if owner in studio.regions:
                     inside = studio.regions[owner].inside(xy)
                     ok &= ~(inside & ((pts[:, 2] < zlim) if zlim is not None else (cam.depth(pts) > cam.depth(sc.objs[owner].centre))))
-            strands.append(dict(P=pts, N=N, ok=ok))
+            gain = 0.72 + 0.50 * np.clip((pts[:, 1] - STRAND) / 0.45, 0, 1)
+            strands.append(dict(P=pts, N=N, ok=ok, gain=np.where(on_front, 0.8, gain)))
         # first its shadow: a thin soft dark beside it, on the side away from the window, wider where it rides up
         shade = Batch(cv, Brush(radius=1.0, hardness=0.0, thick=0.85, pickup=0.0))
         Lw = lt.light.L
@@ -478,8 +481,9 @@ class Strand:
                 for a0 in range(0, len(run) - 1, step):
                     seg = run[a0:a0 + step + 1]
                     if len(seg) >= 2:
-                        shade.add(q[seg] + [px(1.6), px(2.2)], None, 1.0, STRAND * ppc[seg[0]] * 1.35,
-                                  paint=Paint.glaze("#0e0703", 2.4))
+                        up_ = float(base[seg[0]])
+                        shade.add(q[seg] + [px(1.6), px(2.2)], None, 1.0, STRAND * ppc[seg[0]] * (1.35 + 2.0 * up_),
+                                  paint=Paint.glaze("#170d06", 1.7 / (1.0 + 6.0 * up_)))
         shade.flush(order=None)
         cv.dry_now()
         paint_strands(sc, strands, lt, skip=("strand",), seed=40, fuzz=1.5, wrap=0.3)
@@ -491,7 +495,8 @@ class Strand:
             d = q - cam.project(back[None])[0]
             d /= max(np.linalg.norm(d), 1e-9)
             n = np.array([-d[1], d[0]])
-            colr = lt.shade(wool_albedo(end[None]) * 1.15, end[None], np.array([[0.0, 1.0, 0.0]]), skip=("strand",), wrap=0.4)[0]
+            colr = lt.shade(wool_albedo(end[None]) * 1.2, end[None], np.array([[0.0, 1.0, 0.0]]), skip=("strand",), wrap=0.4,
+                            lit=np.array([0.75]))[0]
             for spread in (-0.75, 0.1, 0.8):
                 ln = px(rng.uniform(9, 15))
                 hair.add(np.array([q - d * px(3), q + (d + n * spread * 0.5 * spread_k) * ln * 0.5, q + (d + n * spread * spread_k) * ln]),

@@ -24,8 +24,8 @@ BOARD = 1.5              # thickness of each board
 APOTHEM = 4.7            # centre of a board to the middle of one of its eight sides
 POST_R = 3.75            # distance of the posts from the axis
 
-OAK = lin("#5c4028")
-OAK_WORN = lin("#86683f")
+OAK = lin("#7b5a3a")
+OAK_WORN = lin("#a07c4f")
 POST_BLACK = lin("#261b13")
 SAND = lin("#a8957c")
 BAND_RED = lin("#7a3526")
@@ -158,7 +158,7 @@ class Hourglass:
                 rings = 0.5 + 0.5 * np.sin(np.hypot((P - cf) @ e1, (P - cf) @ e2) * 5.2)      # faint turning marks
                 alb = self._oak(P, e1) * (0.96 + 0.06 * rings)[:, None]
                 alb = alb * (1 - 0.45 * worn[:, None]) + OAK_WORN * 0.45 * worn[:, None]
-                return lt.shade(alb, P, N, skip=skip, spec=0.05, gloss=10)
+                return lt.shade(alb, P, N, skip=skip, spec=0.05, gloss=10, emit=alb * 0.06)
             add(tag + "_face", forms.plane(cf, e1, e2, flip=flip), (-5.2, 5.2), (-5.2, 5.2), face_col, size=5.0, grid=30,
                 vis=lambda P, N, u, v, cf=cf: self._in_octagon(P, cf)[0], along="u", flat=(cf, e1, e2),
                 finish=0.9 if tag == "near" else 0.5, outline_grid=90)
@@ -184,7 +184,7 @@ class Hourglass:
             def sand_col(P, N, u, v):
                 lt = self.lt or sc.lt
                 alb = SAND * (0.92 + 0.14 * fbm3(P * 5.0, 1.0, 2, 81))[:, None]
-                return lt.shade(alb, P, N, skip=skip, wrap=0.3, crowd=0.4)
+                return lt.shade(alb, P, N, skip=skip, wrap=0.3, crowd=0.4, emit=alb * np.array([0.085, 0.07, 0.05]))
             # the sand lying against the low side of the glass
             add("sand%d_side" % i, b["surf"], (0, TWO_PI), (0.0, BULB_LEN), sand_col, size=3.0, grid=60, along="v",
                 vis=lambda P, N, u, v, level=level: P[..., 1] < level, finish=0.8, broken=0.02)
@@ -289,18 +289,23 @@ class Hourglass:
                 c = np.clip(facing(P, N), 0, 1)
                 fres = 0.045 + 0.75 * (1 - c) ** 4
                 refl = lt.mirror(np.ones(3), P, N, skip=("hg:glass",), rough=0.035, taps=7, raw=True) * fres[:, None]
-                refl = refl + (fres ** 1.5)[:, None] * np.array([0.050, 0.058, 0.052])       # the dim room, in its edge
+                refl = refl + (fres ** 1.5)[:, None] * np.array([0.020, 0.024, 0.021])       # the dim room, in its edge
                 return lt.tone(refl)
 
             def bright(P, N, u, v):
                 shape = P.shape[:-1]
                 col = shine(P.reshape(-1, 3), N.reshape(-1, 3), None, None)
                 return (luma(col) > 0.085).reshape(shape)
+            # a reflection only ever adds light: it is laid only where it is lighter than what shows through the glass
+            def adds_light(xy, cols):
+                return luma(cols) > luma(studio.seen(xy)) + 0.035
             for r, sp in ((2.0, 1.6), (1.0, 0.9)):
+                studio._look = None
                 paint_surface(cv, cam, surf, shine, Brush(radius=px(r), hardness=0.5, thick=1.0, pickup=0.0), rng,
                               length=px(r * 3.5), spacing=px(sp), visible=bright, thick_by_value=(0.0, 2.0),
-                              margin=px(0.6), coverage=1.3, **common)
+                              margin=px(0.6), coverage=1.3, needed=adds_light, **common)
             cv.dry_now()
+            studio._look = None
 
             # the window a second time, small, dim and upside down, on the inside of the far wall of the glass
             def far_shine(P, N, u, v):
@@ -313,7 +318,7 @@ class Hourglass:
                 return ((luma(col) > 0.12) & (facing(P, N).reshape(-1) < -0.15)).reshape(shape)
             paint_surface(cv, cam, surf, far_shine, Brush(radius=px(1.3), hardness=0.4, thick=0.8, pickup=0.0), rng,
                           length=px(5), spacing=px(1.2), visible=far_bright, min_facing=-2.0, margin=px(1.0), coverage=1.2,
-                          **common)
+                          needed=adds_light, **common)
             cv.dry_now()
         # dust of sand clinging inside the upper glass, and single grains catching light on the level sand
         speck = Batch(cv, Brush(radius=px(0.55), hardness=0.5, thick=0.5, pickup=0.1))
