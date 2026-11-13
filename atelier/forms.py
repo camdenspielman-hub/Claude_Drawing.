@@ -134,3 +134,161 @@ def fbm3(P, freq=1.0, octaves=4, seed=0, gain=0.5):
         tot += amp
         amp *= gain
     return out / tot
+
+
+# --------------------------------------------------------------------------
+# Free forms, for things that are not simple solids (bone, mostly).
+# --------------------------------------------------------------------------
+
+def spow(a, e):
+    """Signed power: keeps the sign of a."""
+    return np.sign(a) * np.abs(a) ** e
+
+
+class Table1D:
+    """Values given at stations along a form, read off anywhere in between."""
+
+    def __init__(self, x, smooth=True, **cols):
+        self.x = np.asarray(x, dtype=np.float64)
+        self.cols = {k: np.asarray(v, dtype=np.float64) for k, v in cols.items()}
+        self.smooth = smooth
+        self._prof = {k: Profile(np.stack([self.x, v], 1)) for k, v in self.cols.items()} if smooth else None
+
+    def __call__(self, name, x):
+        if self.smooth:
+            return self._prof[name](x)
+        return np.interp(x, self.x, self.cols[name])
+
+
+def loft(stations, ey=0.9, ez=0.85, carve=None):
+    """A body built from cross-sections, like a boat hull.
+
+    stations: Table1D over x with columns yc (centre height), w (half width),
+    ht / hb (half heights above / below the centre), and optionally ey / ez
+    (how square the section is: 1 = elliptical, smaller = boxier).
+    carve(x, y) -> 0..1 hollows the sides: the half width is scaled by (1 - carve).
+    u: position along the body; v: angle round the section (0 = top, pi/2 = +z side).
+    """
+    has_e = "ez" in stations.cols
+
+    def pos(u, v):
+        c, s = np.cos(v), np.sin(v)
+        h = np.where(c > 0, stations("ht", u), stations("hb", u))
+        e_y = stations("ey", u) if has_e else ey
+        e_z = stations("ez", u) if has_e else ez
+        x = np.asarray(u, dtype=np.float64) + 0 * v
+        y = stations("yc", u) + h * spow(c, e_y)
+        z = stations("w", u) * spow(s, e_z)
+        if carve is not None:
+            z = z * (1 - carve(x, y))
+        return np.stack([x, y, z], -1)
+
+    def surf(u, v):
+        u = np.asarray(u, dtype=np.float64)
+        v = np.asarray(v, dtype=np.float64)
+        P = pos(u, v)
+        du, dv = 2e-3, 2e-3
+        Pu = pos(u + du, v) - pos(u - du, v)
+        Pv = pos(u, v + dv) - pos(u, v - dv)
+        N = normalize(np.cross(Pu, Pv))
+        axis = np.stack([u + 0 * v, stations("yc", u) + 0 * v, 0 * u + 0 * v], -1)
+        sign = np.sign(np.sum(N * (P - axis), axis=-1, keepdims=True))
+        return P, N * np.where(sign == 0, 1, sign)
+    return surf
+
+
+class Curve:
+    """A space curve through points, read by a parameter 0..1 (linear between dense samples)."""
+
+    def __init__(self, pts, smooth=True, n=200, param=None):
+        """param: optional parameter value at each given point (so two curves can be kept in step)."""
+        from .geom import catmull
+        pts = np.asarray(pts, dtype=np.float64)
+        if smooth and len(pts) > 2 and param is None:
+            seg = np.linalg.norm(np.diff(pts, axis=0), axis=1).sum()
+            pts = catmull(pts, step=seg / n)
+        self.p = pts
+        d = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+        self.length = d.sum()
+        if param is None:
+            self.s = np.concatenate([[0], np.cumsum(d)]) / self.length
+        else:
+            q = np.asarray(param, dtype=np.float64)
+            self.s = (q - q[0]) / (q[-1] - q[0])
+
+    def __call__(self, t):
+        t = np.clip(np.asarray(t, dtype=np.float64), 0, 1)
+        return np.stack([np.interp(t, self.s, self.p[:, k]) for k in range(self.p.shape[1])], -1)
+
+    def tangent(self, t, h=2e-3):
+        return normalize(self(np.asarray(t) + h) - self(np.asarray(t) - h))
+
+
+def rails(top, bottom, outward, bulge=0.15, edge=0.6):
+    """A strap of bone between two edge curves (Curve objects sharing a parameter).
+
+    u: along the strap 0..1; v: across it, -1 (bottom edge) .. +1 (top edge).
+    outward: a rough direction the visible face points in. bulge may be a number or f(u).
+    """
+    outward = np.asarray(outward, dtype=np.float64)
+    bf = bulge if callable(bulge) else (lambda u: np.full_like(np.asarray(u, dtype=np.float64), bulge))
+
+    def surf(u, v):
+        u = np.asarray(u, dtype=np.float64)
+        v = np.asarray(v, dtype=np.float64)
+        T, B = top(u), bottom(u)
+        mid, half = 0.5 * (T + B), 0.5 * (T - B)
+        h = np.linalg.norm(half, axis=-1, keepdims=True)
+        Wd = half / np.maximum(h, 1e-9)
+        tang = normalize(0.5 * (top.tangent(u) + bottom.tangent(u)))
+        O = normalize(np.cross(tang, Wd))
+        O = O * np.sign(np.sum(O * outward, axis=-1, keepdims=True))
+        b = bf(u)[..., None]
+        vv = v[..., None]
+        P = mid + half * vv + O * b * (1 - vv ** 2)
+        N = normalize(h * O + (2 * b * vv + edge * h * vv ** 5) * Wd)
+        return P, N
+    return surf
+
+
+def tube(curve, radius, flatten=None):
+    """A rod or tapering spike round a Curve. u: angle 0..2pi; v: along 0..1. radius: f(v).
+
+    flatten=(direction, factor) squashes the section along `direction` (for blade-like teeth).
+    """
+    # one steady frame for the whole curve is enough for the gently bent things painted here
+    t0 = curve.tangent(np.array([0.5]))[0]
+    if flatten is not None:
+        d = np.asarray(flatten[0], dtype=np.float64)
+        e2 = normalize(d - (d @ t0) * t0)
+        e1 = np.cross(e2, t0)
+        fz = flatten[1]
+    else:
+        e1, e2 = frame(t0)
+        fz = 1.0
+
+    def surf(u, v):
+        u = np.asarray(u, dtype=np.float64)
+        v = np.asarray(v, dtype=np.float64)
+        C = curve(v)
+        T = curve.tangent(v)
+        a1 = normalize(e1 - np.sum(e1 * T, axis=-1, keepdims=True) * T)
+        a2 = np.cross(T, a1)
+        r = radius(v)[..., None]
+        dr = ((radius(v + 1e-3) - radius(v - 1e-3)) / 2e-3 / max(curve.length, 1e-9))[..., None]
+        cu, su = np.cos(u)[..., None], np.sin(u)[..., None]
+        P = C + r * (cu * a1 + fz * su * a2)
+        N = normalize(cu * a1 * fz + su * a2 - dr * T * fz)
+        return P, N
+    return surf
+
+
+def transformed(surf, M, t):
+    """Place a form built in its own frame into the world: P -> t + M P (M orthonormal)."""
+    M = np.asarray(M, dtype=np.float64)
+    t = np.asarray(t, dtype=np.float64)
+
+    def out(u, v):
+        P, N = surf(u, v)
+        return t + P @ M.T, N @ M.T
+    return out
