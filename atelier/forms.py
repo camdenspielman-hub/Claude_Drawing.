@@ -170,12 +170,17 @@ def loft(stations, ey=0.9, ez=0.85, carve=None):
     u: position along the body; v: angle round the section (0 = top, pi/2 = +z side).
     """
     has_e = "ez" in stations.cols
+    has_b = "eb" in stations.cols
 
     def pos(u, v):
         c, s = np.cos(v), np.sin(v)
         h = np.where(c > 0, stations("ht", u), stations("hb", u))
         e_y = stations("ey", u) if has_e else ey
         e_z = stations("ez", u) if has_e else ez
+        if has_b:                       # a squarer lower half where asked for
+            eb = stations("eb", u)
+            e_y = np.where(c > 0, e_y, eb)
+            e_z = np.where(c > 0, e_z, eb)
         x = np.asarray(u, dtype=np.float64) + 0 * v
         y = stations("yc", u) + h * spow(c, e_y)
         z = stations("w", u) * spow(s, e_z)
@@ -292,3 +297,14 @@ def transformed(surf, M, t):
         P, N = surf(u, v)
         return t + P @ M.T, N @ M.T
     return out
+
+
+def toward_eye(surf, cam):
+    """Both faces of a thin shell: normals are turned to face the eye, so the inside of a
+    form (the far half of a jaw seen through the mouth, say) can be painted like any surface."""
+    def out(u, v):
+        P, N = surf(u, v)
+        s = np.sign(np.sum(N * cam.to_eye(P), axis=-1, keepdims=True))
+        return P, N * np.where(s == 0, 1, s)
+    return out
+

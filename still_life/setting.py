@@ -79,6 +79,14 @@ def paint(sc, reserve=None, objects=()):
             fill_field(cv, (0, 0, W, ybot), wc, swirl, big, rng, length=px(240), spacing=px(24), curl=0.15, inside=free)
         fill_field(cv, (0, 0, W, ybot), wc, swirl, Brush(radius=px(26), hardness=0.25, thick=1.1, pickup=0.5), rng,
                    length=px(150), spacing=px(20), curl=0.2, inside=free)
+        if reserve is not None and reserve.any():
+            # cut in round the objects with smaller brushes, so the wall meets every edge
+            outside = ~reserve
+            x0, y0, x1, y1 = reserve.bbox(pad=int(px(110)))
+            for r, band in ((12.0, 100.0), (5.0, 34.0)):
+                near = lambda xy, band=band: free(xy) & (outside.depth(xy) < px(band))
+                fill_field(cv, (x0, y0, x1, min(y1, ybot)), wc, swirl, Brush(radius=px(r), hardness=0.35, thick=1.2, pickup=0.5),
+                           rng, length=px(r * 5), spacing=px(r * 0.8), curl=0.25, inside=near)
         fill_field(cv, (0, 0, W, ybot), wc, swirl, Brush(kind="blender", radius=px(34), hardness=0.15, pickup=0.35, load=0.5),
                    rng, length=px(200), spacing=px(30), curl=0.3, inside=free, paint=Paint.opaque("#000000"))
         cv.dry_now()
@@ -106,6 +114,14 @@ def paint(sc, reserve=None, objects=()):
         paint_surface(cv, cam, top, top_col, Brush(radius=px(r), hardness=0.35, thick=1.1, pickup=0.5), rng,
                       urange=(-34, 40), vrange=(-28, L.TABLE_FRONT), length=px(r * 5), spacing=px(r * 0.8), grid=140,
                       visible=vis, detail=(tol, px(probe)))
+    if reserve is not None and reserve.any():
+        # and the table likewise, close in round every object
+        outside = ~reserve
+        near = lambda P, N, u, v: vis(P, N, u, v) & (outside.depth(cam.project(P)) < px(26))
+        for r in (4.0, 1.8):
+            paint_surface(cv, cam, top, top_col, Brush(radius=px(r), hardness=0.4, thick=1.1, pickup=0.5), rng,
+                          urange=(-34, 40), vrange=(-28, L.TABLE_FRONT), length=px(r * 5), spacing=px(r * 0.8), grid=140,
+                          visible=near)
     paint_surface(cv, cam, top, top_col, Brush(kind="blender", radius=px(5), hardness=0.2, pickup=0.3, load=0.5), rng,
                   urange=(-34, 40), vrange=(-28, L.TABLE_FRONT), length=px(40), spacing=px(9), grid=90, visible=vis,
                   paint=Paint.opaque("#000000"), detail=None)

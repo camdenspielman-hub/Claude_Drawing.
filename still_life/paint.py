@@ -14,9 +14,15 @@ from atelier.canvas import Recorder
 from atelier.stencil import Stencil
 from . import scene as L
 from . import setting
+from .coins import Coins
+from .dagger import Dagger
+from .hourglass import Hourglass
+from .orange import Orange
 from .skull import Skull
+from .yarn import Yarn, Thread
 
-MAKERS = {"skull": Skull}
+MAKERS = {"skull": Skull, "hourglass": Hourglass, "yarn": Yarn, "thread": Thread, "coins": Coins,
+          "orange": Orange, "dagger": Dagger}
 ORDER = ["hourglass", "dagger", "yarn", "skull", "coins", "orange", "thread"]   # far to near
 
 
@@ -58,7 +64,8 @@ def main():
     objs = build(sc, names)
     reserve = Stencil.empty(sc.W, sc.H)
     for o in objs.values():
-        reserve = reserve | o.prepare()
+        o.prepare()
+        reserve = reserve | getattr(o, "reserve", o.stencil)
     setting.paint(sc, reserve=reserve, objects=list(objs.values()))
     print("setting done: %d strokes, %.0fs" % (sc.cv.nstrokes, time.time() - t0))
     for n in ORDER:

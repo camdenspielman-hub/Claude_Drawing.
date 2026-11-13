@@ -67,3 +67,24 @@ class Lighting:
         if emit is not None:
             out = out + emit
         return out if raw else self.tone(out)
+
+    def metal(self, tint, P, N, skip=(), gloss=9.0, shine=1.0, env=1.0, dirt=None, lit=None, raw=False):
+        """Colour of bare metal. Metal has almost no colour of its own: it shows the window where
+        it mirrors the window, the dark room elsewhere, and the warm table from below.
+        tint: the metal's colour (linear); dirt: optional (N, 3) dull colour mixed in (tarnish, grime)."""
+        P = np.asarray(P, dtype=np.float64).reshape(-1, 3)
+        N = normalize(np.asarray(N, dtype=np.float64).reshape(-1, 3))
+        tint = np.broadcast_to(np.asarray(tint, dtype=np.float64), P.shape)
+        V = self.cam.to_eye(P)
+        R = 2 * np.sum(N * V, axis=1, keepdims=True) * N - V
+        vis = self.light.lit(P, skip) if lit is None else lit
+        if self.pool is not None:
+            vis = vis * self.pool(P)
+        window = np.clip(R @ self.light.L, 0, 1) ** gloss * vis * (N @ self.light.L > 0)
+        out = tint * (shine * 1.6 * window[:, None] * self.key + env * self.ambient(R))
+        if dirt is not None:
+            d, amount = dirt
+            ndl = np.clip(N @ self.light.L, 0, 1) * vis
+            out = out * (1 - amount[:, None]) + amount[:, None] * d * (self.key * ndl[:, None] + self.ambient(N))
+        return out if raw else self.tone(out)
+

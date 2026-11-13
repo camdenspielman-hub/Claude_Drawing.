@@ -23,12 +23,14 @@ MIRROR = np.diag([1.0, 1.0, -1.0])
 # ---- the central body: braincase, brow and muzzle, as cross-sections from back to front
 CORE = Table1D(
     [0.0, 0.3, 1.0, 2.0, 3.0, 4.0, 5.0, 5.6, 6.2, 6.8, 7.4, 8.0, 8.6, 9.1, 9.5, 9.85, 10.05],
-    w=[0.60, 1.55, 2.08, 2.25, 2.25, 2.05, 1.72, 1.85, 2.00, 1.75, 1.60, 1.45, 1.36, 1.32, 1.22, 0.95, 0.50],
+    w=[0.60, 1.55, 2.08, 2.25, 2.25, 2.05, 1.72, 1.85, 2.00, 1.75, 1.60, 1.45, 1.36, 1.32, 1.24, 1.04, 0.74],
     yc=[1.55, 1.55, 1.70, 1.80, 1.85, 1.90, 1.98, 1.98, 1.92, 1.80, 1.60, 1.35, 1.15, 1.02, 0.90, 0.70, 0.55],
     ht=[0.60, 1.35, 1.85, 2.12, 2.15, 2.10, 1.93, 1.82, 1.70, 1.56, 1.42, 1.20, 0.95, 0.80, 0.65, 0.42, 0.25],
     hb=[0.70, 1.15, 1.40, 1.50, 1.50, 1.50, 1.50, 1.50, 1.48, 1.42, 1.28, 1.07, 0.89, 0.77, 0.65, 0.45, 0.25],
     ez=[0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.85, 0.80, 0.70, 0.62, 0.58, 0.58, 0.60, 0.70, 0.85],
-    ey=[0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.88, 0.84, 0.80, 0.80, 0.80, 0.80, 0.85, 0.90])
+    ey=[0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.90, 0.88, 0.84, 0.80, 0.80, 0.80, 0.80, 0.85, 0.90],
+    # underneath, the muzzle is squared off: a flat palate with upright sides down to the tooth row
+    eb=[0.88, 0.88, 0.88, 0.88, 0.88, 0.88, 0.88, 0.80, 0.62, 0.50, 0.45, 0.42, 0.42, 0.42, 0.45, 0.60, 0.85])
 
 ORBIT_C = (6.45, 1.90)     # centre of the eye socket on the side of the head (X, Y)
 ORBIT_R = (1.25, 1.30)
@@ -75,10 +77,29 @@ ARCH_TOP = Curve(_ARCH[:, [0, 1, 3]], smooth=False)
 ARCH_BOT = Curve(_ARCH[:, [0, 2, 4]], smooth=False)
 ARCH_MID = Curve(np.stack([_ARCH[:, 0], 0.5 * (np.minimum(_ARCH[:, 1], 1.2) + _ARCH[:, 2]), _ARCH[:, 4]], 1))
 
+# ---- the ridge of bone along the upper tooth row, from the front teeth round to behind the carnassial
+_RIDGE = np.array([
+    # X      Z     Ytop  Ybot
+    [10.08, 0.00, 0.46, 0.22],
+    [10.06, 0.36, 0.46, 0.22],
+    [9.99, 0.68, 0.48, 0.22],
+    [9.80, 1.00, 0.56, 0.22],
+    [9.40, 1.30, 0.86, 0.20],     # swelling over the root of the canine
+    [9.05, 1.40, 0.90, 0.20],
+    [8.55, 1.46, 0.80, 0.24],
+    [8.05, 1.60, 0.76, 0.26],
+    [7.55, 1.78, 0.74, 0.27],
+    [7.05, 1.95, 0.72, 0.28],
+    [6.55, 2.08, 0.66, 0.30],
+    [6.30, 2.06, 0.56, 0.36]])
+RIDGE_TOP = Curve(np.stack([_RIDGE[:, 0], _RIDGE[:, 2], _RIDGE[:, 1] - 0.30], 1), param=np.arange(len(_RIDGE)))
+RIDGE_BOT = Curve(np.stack([_RIDGE[:, 0], _RIDGE[:, 3], _RIDGE[:, 1] + 0.02], 1), param=np.arange(len(_RIDGE)))
+
 # ---- lower jaw (left half): top and bottom edges
 _JAW = np.array([
     # X     Ytop   Ybot   Z
-    [9.80, -0.36, -0.84, 0.20],
+    [9.90, -0.36, -0.80, 0.00],     # the chin, where the two halves join
+    [9.84, -0.36, -0.86, 0.22],
     [9.45, -0.34, -1.28, 0.55],
     [8.80, -0.36, -1.46, 1.02],
     [8.00, -0.40, -1.52, 1.38],
@@ -127,6 +148,7 @@ class Part:
     def __init__(self, name, surf, ur, vr, kind="bone", side=0, grid=64):
         self.name, self.surf, self.ur, self.vr = name, surf, ur, vr
         self.kind, self.side, self.grid = kind, side, grid
+        self.inside = False
 
 
 class Skull:
@@ -155,9 +177,13 @@ class Skull:
         M = self.M @ MIRROR if mirror else self.M
         return forms.transformed(surf, M, self.t)
 
-    def add(self, name, surf, ur, vr, kind="bone", mirror=False, grid=64):
-        self.parts.append(Part(name + ("_R" if mirror else "_L" if mirror is not None else ""),
-                               self.place(surf, bool(mirror)), ur, vr, kind, grid=grid))
+    def add(self, name, surf, ur, vr, kind="bone", mirror=False, grid=64, both=False):
+        placed = self.place(surf, bool(mirror))
+        if both:
+            placed = forms.toward_eye(placed, self.sc.cam)
+        p = Part(name + ("_R" if mirror else "_L" if mirror is not None else ""), placed, ur, vr, kind, grid=grid)
+        p.inside = both
+        self.parts.append(p)
 
     def _build(self):
         core = forms.loft(CORE, carve=core_carve)
@@ -166,52 +192,58 @@ class Skull:
         arch = forms.rails(ARCH_TOP, ARCH_BOT, [0, 0, 1], bulge=0.10, edge=0.6)
         jaw = forms.rails(JAW_TOP, JAW_BOT, [0, 0, 1], bulge=_jaw_bulge, edge=0.9)
         bulla = forms.ellipsoid([1.95, 0.0, 1.25], (0.95, 0.72, 0.68))
-        up_canine = _spike([9.12, 0.30, 1.10], [9.30, -0.32, 1.19], [9.27, -0.88, 1.21], 0.25)
-        lo_canine = _spike([9.52, -0.36, 0.74], [9.68, 0.05, 0.84], [9.64, 0.42, 0.90], 0.20)
-        teeth_up = [_peg([9.96 - 0.06 * i, 0.30, z], [10.02 - 0.06 * i, 0.02 - 0.08 * (i == 2), z], r)
-                    for i, (z, r) in enumerate([(0.12, 0.075), (0.33, 0.08), (0.58, 0.11)])]
-        teeth_lo = [_peg([9.80, -0.38, z], [9.88, -0.14, z], 0.06) for z in (0.09, 0.24, 0.40)]
-        # upper cheek teeth: a tiny peg, a single-pointed premolar, and the long three-pointed carnassial
-        cheek_up = [_crown([8.52, 8.46, 8.40], 0.28, [0.22, 0.12, 0.22], 1.34, 1.37, thick=0.06),
-                    _crown([8.24, 8.14, 8.03, 7.95, 7.87, 7.78, 7.68], 0.30, [0.24, 0.12, -0.08, -0.15, -0.08, 0.10, 0.22],
-                           1.44, 1.58, thick=0.17),
-                    _crown([7.64, 7.55, 7.48, 7.40, 7.30, 7.18, 7.10, 7.02, 6.94, 6.84, 6.72, 6.60, 6.48], 0.33,
+        ridge = forms.rails(RIDGE_TOP, RIDGE_BOT, [0.35, 0, 1], bulge=0.025, edge=0.25)
+        up_canine = _spike([9.10, 0.62, 1.08], [9.30, -0.28, 1.19], [9.27, -0.88, 1.21], 0.26, power=0.62)
+        lo_canine = _spike([9.48, -0.78, 0.72], [9.68, 0.02, 0.84], [9.64, 0.42, 0.90], 0.21, power=0.62)
+        # six small front teeth above and six below, set in an arc along the front of each jaw
+        teeth_up = [_peg([x - 0.06, 0.52, z], [x - 0.01, tip, z], r)
+                    for x, z, r, tip in [(10.07, 0.11, 0.095, 0.02), (10.05, 0.31, 0.10, 0.00), (10.00, 0.55, 0.13, -0.08)]]
+        teeth_lo = [_peg([x - 0.08, -0.66, z], [x, -0.12, z], 0.075)
+                    for x, z in [(9.90, 0.08), (9.88, 0.23), (9.84, 0.38)]]
+        # upper cheek teeth: a tiny peg, a single-pointed premolar, and the long three-pointed carnassial.
+        # Their crowns start well up behind the ridge of bone, so they are seen growing out of it.
+        cheek_up = [_crown([8.52, 8.46, 8.40], 0.50, [0.22, 0.12, 0.22], 1.34, 1.37, thick=0.06),
+                    _crown([8.24, 8.14, 8.03, 7.95, 7.87, 7.78, 7.68], 0.55, [0.24, 0.12, -0.08, -0.15, -0.08, 0.10, 0.22],
+                           1.44, 1.60, thick=0.17),
+                    _crown([7.64, 7.55, 7.48, 7.40, 7.30, 7.18, 7.10, 7.02, 6.94, 6.84, 6.72, 6.60, 6.48], 0.58,
                            [0.22, 0.06, 0.00, 0.06, -0.10, -0.21, -0.23, -0.18, 0.00, -0.08, -0.10, 0.02, 0.18],
-                           1.62, 1.92, thick=0.19)]
-        # lower cheek teeth sit just inside the upper ones, so mostly their points show
-        cheek_lo = [_crown([8.56, 8.44, 8.34, 8.24, 8.12], -0.40, [-0.34, -0.26, -0.22, -0.26, -0.34], 1.08, 1.20, upper=False, thick=0.13),
-                    _crown([8.05, 7.92, 7.82, 7.76, 7.70, 7.60, 7.50], -0.42, [-0.36, -0.28, -0.16, -0.13, -0.16, -0.28, -0.36],
-                           1.20, 1.33, upper=False, thick=0.14),
-                    _crown([7.42, 7.30, 7.22, 7.14, 7.00, 6.86, 6.78, 6.70, 6.50], -0.43,
-                           [-0.36, -0.20, -0.12, -0.16, -0.26, -0.16, -0.12, -0.18, -0.34], 1.33, 1.52, upper=False, thick=0.14)]
+                           1.66, 1.96, thick=0.19)]
+        # lower cheek teeth sit just inside the upper ones and are rooted below the jaw's top edge
+        cheek_lo = [_crown([8.56, 8.44, 8.34, 8.24, 8.12], -0.66, [-0.34, -0.26, -0.22, -0.26, -0.34], 1.06, 1.22, upper=False, thick=0.13),
+                    _crown([8.05, 7.92, 7.82, 7.76, 7.70, 7.60, 7.50], -0.68, [-0.36, -0.28, -0.16, -0.13, -0.16, -0.28, -0.36],
+                           1.22, 1.40, upper=False, thick=0.14),
+                    _crown([7.42, 7.30, 7.22, 7.14, 7.00, 6.86, 6.78, 6.70, 6.50], -0.70,
+                           [-0.36, -0.20, -0.12, -0.16, -0.26, -0.16, -0.12, -0.18, -0.34], 1.40, 1.62, upper=False, thick=0.14)]
 
-        def side(mirror):
-            s = "R" if mirror else "L"
+        def lower(mirror):
             self.add("bulla", bulla, (0, TWO_PI), (-np.pi / 2, np.pi / 2), mirror=mirror, grid=32)
-            self.add("jaw", jaw, (0, 1), (-1, 1), kind="jaw", mirror=mirror, grid=90)
-            for i, t in enumerate(cheek_lo if not mirror else []):
-                self.add("cheeklo%d" % i, t, (0, 1), (-1, 1), kind="tooth", mirror=mirror, grid=36)
+            for i, t in enumerate(cheek_lo):
+                self.add("cheeklo%d" % i, t, (0, 1), (-1, 1), kind="tooth", mirror=mirror, grid=36, both=mirror)
             for i, t in enumerate(teeth_lo):
                 self.add("inclo%d" % i, t, (0, TWO_PI), (0, 1), kind="tooth", mirror=mirror, grid=16)
             self.add("canine_lo", lo_canine, (0, TWO_PI), (0, 1), kind="tooth", mirror=mirror, grid=28)
+            # the jaw covers their roots. The far half is seen from inside, through the mouth.
+            self.add("jaw", jaw, (0, 1), (-1, 1), kind="jaw", mirror=mirror, grid=90, both=mirror)
 
-        def side_front(mirror):
-            for i, t in enumerate(cheek_up if not mirror else []):
-                self.add("cheekup%d" % i, t, (0, 1), (-1, 1), kind="tooth", mirror=mirror, grid=36)
+        def upper(mirror):
+            for i, t in enumerate(cheek_up):
+                self.add("cheekup%d" % i, t, (0, 1), (-1, 1), kind="tooth", mirror=mirror, grid=36, both=mirror)
             for i, t in enumerate(teeth_up):
                 self.add("incup%d" % i, t, (0, TWO_PI), (0, 1), kind="tooth", mirror=mirror, grid=16)
             self.add("canine_up", up_canine, (0, TWO_PI), (0, 1), kind="tooth", mirror=mirror, grid=28)
 
         # far side first, then the middle, then the side that faces us
-        side(True)
+        lower(True)
         self.add("arch", arch, (0, 1), (-1, 1), mirror=True, grid=90)
-        side_front(True)
+        upper(True)
+        self.add("ridge", ridge, (0, 1), (-1, 1), mirror=True, grid=70, both=True)        # the far gum, inside and out
         self.parts.append(Part("nose", self.place(core), (8.9, 10.05), (-1.4, 1.4), "cavity", grid=60))
         self.parts.append(Part("core", self.place(core), (0.0, 10.05), (-np.pi, np.pi), "core", grid=140))
         self.add("brow", brow_spur, (0, TWO_PI), (0, 1), mirror=True, grid=24)
         self.add("brow", brow_spur, (0, TWO_PI), (0, 1), mirror=False, grid=24)
-        side(False)
-        side_front(False)
+        lower(False)
+        upper(False)
+        self.add("ridge", ridge, (0, 1), (-1, 1), mirror=False, grid=70)                  # covers the near roots
         self.add("arch", arch, (0, 1), (-1, 1), mirror=False, grid=90)
 
     def part(self, name):
@@ -273,7 +305,8 @@ def _hollow(Pl, kind):
     if kind == "jaw":
         return 0.72 + 0.28 * (1 - smoothstep(-0.9, -0.2, y)) - 0.42 * smoothstep(-0.1, 0.7, y)
     if kind == "tooth":
-        return np.full(len(x), 0.6)
+        # teeth are open to the room at their points and shut in near the gum
+        return 0.45 + 0.35 * smoothstep(0.18, 0.5, np.abs(y + 0.05))
     return np.ones(len(x))
 
 
@@ -331,21 +364,22 @@ def _paint(self):
             continue
 
         skip = {"core": ("skull:core",), "brow": ("skull:core", "skull:brow_" + tag), "arch": ("skull:arch_" + tag,),
+                "ridge": ("skull:core", "skull:canine_up_" + tag),
                 "jaw": ("skull:jaw_" + tag,), "bulla": ("skull:bulla_" + tag,),
                 "canine_up": ("skull:canine_up_" + tag,)}.get(base, ())
         tooth = p.kind == "tooth"
 
         if base.startswith("cheekup"):
-            gum_of = lambda u, v: smoothstep(0.35, 1.0, v)
+            gum_of = lambda u, v: smoothstep(-0.1, 0.5, v)
         elif base.startswith("cheeklo"):
-            gum_of = lambda u, v: smoothstep(-0.35, -1.0, v)
+            gum_of = lambda u, v: smoothstep(0.1, -0.5, v)
         else:
-            gum_of = lambda u, v: 1 - smoothstep(0.0, 0.3, v)
+            gum_of = lambda u, v: 1 - smoothstep(0.25, 0.55, v)
 
         def col(P, N, u, v, p=p, skip=skip, tooth=tooth, gum_of=gum_of):
             Pl = self.local(P)
             alb = _albedo(Pl, p.kind, gum_of(u, v) if tooth else None)
-            return lt.shade(alb, P, N, skip=skip, ao=_hollow(Pl, p.kind),
+            return lt.shade(alb, P, N, skip=skip, ao=_hollow(Pl, p.kind) * (0.55 if p.inside else 1.0),
                             spec=0.30 if tooth else 0.06, gloss=45 if tooth else 12, wrap=0.10)
 
         small = tooth and base not in ("canine_up", "canine_lo")
