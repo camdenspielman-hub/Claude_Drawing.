@@ -62,7 +62,29 @@ blade and tucked behind the fang, the collars of pale wall round objects, and mo
 
 ## What still falls short
 
-SHORTFALLS
+The critics' last verdicts were still "not yet" for most objects, and they are right about these:
+
+- **The skull** reads as a small carnivore before it reads as a cat. The face is short and the
+  socket large now, but the teeth are still simple cones and blades, and the socket, arch and
+  spurs are a sculptor's approximation of the real openings, not the thin plates of real bone.
+- **The dagger** is some 27 cm long, well short of the Saxon left-hand daggers it borrows from
+  (about 40 cm); it would not fit the canvas at their size. Its blade shows the room as soft
+  bands of tone, not a recognisable reflection of the orange beside it.
+- **The hourglass** boards are plain slabs without mouldings, and its sand lies level instead
+  of banked as it would after a fall. The glass reflects but does not bend what is seen through it.
+- **The coins** have thickness, wear and lit rims, but their devices are barely legible and
+  they are all nearly round.
+- **The strand** is close to one width and one blue from end to end, and lies on the coins more
+  than it sinks between them.
+- **The orange's** cut face still has something of a drawn star about it.
+- **Edges** vary, but less than a painter would vary them, and at this size some outlines
+  still show the step of the pixel grid.
+- **The light** is a hand-written approximation. Light does not truly bounce around the room;
+  neighbours tint each other by a rule of thumb.
+
+Round one of the critics was on the first version. The half-size states they were shown in
+rounds two and three, and the state after the last round's corrections, are in
+[`studies/review/`](studies/review/).
 
 ## How it works
 
