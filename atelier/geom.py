@@ -32,6 +32,15 @@ class Camera:
     def depth(self, P):
         return (np.asarray(P, dtype=np.float64) - self.eye) @ self.f
 
+    def onto_plane(self, xy, origin, normal):
+        """World points where the lines of sight through canvas points xy (N, 2) meet a plane."""
+        xy = np.asarray(xy, dtype=np.float64)
+        d = (self.f[None, :] + ((xy[:, 0] - self.cx) / self.focal)[:, None] * self.r[None, :]
+             - ((xy[:, 1] - self.cy) / self.focal)[:, None] * self.u[None, :])
+        n = np.asarray(normal, dtype=np.float64)
+        t = ((np.asarray(origin, dtype=np.float64) - self.eye) @ n) / (d @ n)
+        return self.eye + t[:, None] * d
+
     def to_eye(self, P):
         """Unit vectors from the points toward the eye."""
         return normalize(self.eye - np.asarray(P, dtype=np.float64))
@@ -115,6 +124,24 @@ class Occluder:
         """How much of the light is blocked at points P (N, 3): 0 = none, 1 = all."""
         raise NotImplementedError
 
+    def bound(self):
+        """A sphere (centre, radius) that contains it."""
+        raise NotImplementedError
+
+    def nearest(self, P):
+        """For each point, the closest point of this solid's core and the solid's reach round it."""
+        c, r = self.bound()
+        return np.broadcast_to(c, P.shape), r
+
+    def shuts_out(self, P, N):
+        """How much of the surrounding room this solid hides from a surface at P facing N (0..1):
+        the darkening where things touch or crowd together. Treated as a ball at its nearest point."""
+        q, r = self.nearest(P)
+        v = q - P
+        d = np.maximum(np.linalg.norm(v, axis=1), 1e-6)
+        facing = np.clip(np.sum(v * N, axis=1) / d, 0, 1)
+        return self.opacity * np.clip((r / np.maximum(d, r)) ** 2, 0, 1) * facing
+
 
 class Ball(Occluder):
     def __init__(self, name, center, radius, opacity=1.0, scale=(1, 1, 1), rot=None):
@@ -138,6 +165,12 @@ class Ball(Occluder):
         c = 1 - smoothstep(self.r - w, self.r + w, d)
         # points on the lit side of the ball itself are not shadowed by it
         return self.opacity * c * (t > 0)
+
+    def bound(self):
+        return self.c, self.r * float(np.max(self.scale))
+
+    def nearest(self, P):
+        return np.broadcast_to(self.c, P.shape), self.r * float(np.mean(self.scale))
 
 
 class Capsule(Occluder):
@@ -164,6 +197,14 @@ class Capsule(Occluder):
         w = np.maximum(soft * s, 0.03)
         return self.opacity * (1 - smoothstep(self.r - w, self.r + w, d)) * (s > 1e-6)
 
+    def bound(self):
+        return 0.5 * (self.a + self.b), 0.5 * np.linalg.norm(self.b - self.a) + self.r
+
+    def nearest(self, P):
+        d2 = self.b - self.a
+        t = np.clip(((P - self.a) @ d2) / max(d2 @ d2, 1e-12), 0, 1)
+        return self.a + t[:, None] * d2, self.r * 1.25
+
 
 class Disc(Occluder):
     def __init__(self, name, center, normal, radius, opacity=1.0):
@@ -181,6 +222,17 @@ class Disc(Occluder):
         d = np.linalg.norm(hit - self.c, axis=1)
         w = np.maximum(soft * np.maximum(t, 0), 0.03)
         return self.opacity * (1 - smoothstep(self.r - w, self.r + w, d)) * (t > 1e-4)
+
+    def bound(self):
+        return self.c, self.r
+
+    def nearest(self, P):
+        # the closest point of the disc: drop onto its plane, pull in to the rim
+        v = P - self.c
+        v = v - (v @ self.n)[:, None] * self.n
+        d = np.maximum(np.linalg.norm(v, axis=1), 1e-9)
+        q = self.c + v * np.minimum(1.0, 0.7 * self.r / d)[:, None]
+        return q, self.r * 0.55
 
 
 class Quad(Occluder):
@@ -206,14 +258,36 @@ class Quad(Occluder):
         w = np.maximum(soft * np.maximum(t, 0), 0.03)
         return self.opacity * smoothstep(-w, w, inside) * (t > 1e-4)
 
+    def bound(self):
+        c = self.p.mean(axis=0)
+        return c, float(np.max(np.linalg.norm(self.p - c, axis=1)))
+
+    def nearest(self, P):
+        c, r = self.bound()
+        v = P - c
+        v = v - (v @ self.n)[:, None] * self.n
+        d = np.maximum(np.linalg.norm(v, axis=1), 1e-9)
+        return c + v * np.minimum(1.0, 0.6 * r / d)[:, None], r * 0.4
+
+
+class Glow:
+    """Something bright and coloured enough to throw its colour on its neighbours and to show in
+    polished things near it: a ball of a given colour (linear), standing in for the object."""
+
+    def __init__(self, name, center, radius, colour):
+        self.name = name
+        self.c = np.asarray(center, dtype=np.float64)
+        self.r = float(radius)
+        self.colour = np.asarray(colour, dtype=np.float64)
+
 
 class Light:
     """One window: a direction, how soft its shadows are, and what stands in its way."""
 
-    def __init__(self, toward, soft=0.06):
+    def __init__(self, toward, soft=0.06, occluders=None):
         self.L = normalize(toward)
         self.soft = soft
-        self.occluders = []
+        self.occluders = [] if occluders is None else occluders
 
     def add(self, *occ):
         self.occluders.extend(occ)
@@ -227,3 +301,29 @@ class Light:
                 continue
             vis *= 1 - o.cover(P, self.L, self.soft)
         return vis
+
+    def open_to_room(self, P, N, skip=(), reach=1.0):
+        """Share of the room's dim light reaching a surface at P facing N: less where other
+        solids crowd close (under a jaw, between coins, where a ball meets the table)."""
+        P = np.asarray(P, dtype=np.float64).reshape(-1, 3)
+        keep = np.ones(len(P))
+        for o in self.occluders:
+            if any(o.name.startswith(s) for s in skip):
+                continue
+            keep *= 1 - np.clip(reach * o.shuts_out(P, N), 0, 0.95)
+        return keep
+
+    def near(self, center, radius, margin=10.0):
+        """The same light with only the solids that could shadow or crowd a form of this size here."""
+        C = np.asarray(center, dtype=np.float64)
+        keep = []
+        for o in self.occluders:
+            c, r = o.bound()
+            v = c - C
+            along = v @ self.L
+            across = np.linalg.norm(v - along * self.L)
+            shadows = along > -(radius + r) and across < radius + r + self.soft * max(along, 0) * 1.5 + 0.5
+            crowds = np.linalg.norm(v) < radius + r + margin
+            if shadows or crowds:
+                keep.append(o)
+        return Light(self.L, self.soft, keep)

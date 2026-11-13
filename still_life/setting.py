@@ -1,209 +1,228 @@
-"""The setting: a dark wall, and an old oak table top with its front edge."""
+"""The setting: a plastered wall and an old oak table.
+
+Painted the way Claesz and Heda painted theirs. The wall is a thin, uneven, low glow, lightest
+on the side away from the window and darker in a band just above the table. The table top is
+a plain warm plane, paler where hands have rubbed it near the front, with one joint between
+boards, a crack, and old knife marks; its front face is a darker band under a worn pale edge.
+"""
 import numpy as np
 
 from atelier import forms
-from atelier.brushwork import paint_surface, fill_field
+from atelier.brushwork import Batch
 from atelier.canvas import Brush, Paint
 from atelier.forms import fbm3, noise3
 from atelier.geom import smoothstep
 from atelier.shading import lin
+from atelier.studio import Form
 from . import scene as L
 
-OAK = lin("#5c4630")
-OAK_DARK = lin("#3d2c1c")
+OAK = lin("#7c5d3c")
+OAK_DARK = lin("#3f2a18")
+WALL_HUE = np.array([1.10, 0.94, 0.60])     # olive umber
+JOINT_Z = 2.4                               # where two boards of the top meet
 
 
 def window_pool(P):
-    """Where the window's light falls: fullest on the front of the table, a little left of centre,
+    """Where the window's light falls: fullest on the front of the table a little left of centre,
     dying away to the sides and into the depth of the room."""
     x, z = P[:, 0], P[:, 2]
-    side = np.exp(-((x - 1.0) / 27.0) ** 2)
-    depth = smoothstep(-24.0, 7.0, z) ** 1.3
-    return 0.05 + 0.95 * side * (0.10 + 0.90 * depth)
+    side = np.exp(-((x - 1.5) / 27.0) ** 2)
+    depth = smoothstep(-26.0, 9.0, z) ** 1.5
+    return 0.06 + 0.94 * side * (0.10 + 0.90 * depth)
 
 
-def wall_colour(sc):
-    W, H = sc.W, sc.H
-    x0, y0 = sc.crop[0], sc.crop[1]
-
-    def col(xy):
-        # work in full-canvas coordinates so a cropped study matches the whole picture
-        X = (xy[:, 0] / sc.s + x0) / L.W0
-        Y = (xy[:, 1] / sc.s + y0) / L.H0
-        glow = np.exp(-(((X - 0.66) / 0.36) ** 2 + ((Y - 0.36) / 0.40) ** 2))
-        v = 0.022 + 0.125 * glow
-        q = np.stack([X * 7.0, Y * 7.0, 0 * X], 1)
-        v = v * (0.82 + 0.36 * fbm3(q, 1.0, 3, 41))
-        warm = 0.5 + 0.5 * fbm3(q * 0.6 + 9.0, 1.0, 2, 43)
-        return np.stack([v * (1.06 + 0.10 * warm), v * (0.98 + 0.03 * warm), v * (0.80 - 0.08 * warm)], 1)
-    return col
+def wall_linear(P, lit=1.0):
+    """The wall's tone (linear) at points on it."""
+    x, y = P[:, 0], P[:, 1]
+    glow = np.exp(-(((x - 11.0) / 25.0) ** 2 + ((y - 12.0) / 15.0) ** 2))
+    v = 0.0055 + 0.040 * glow
+    q = np.stack([x * 0.16, y * 0.16, 0 * x], 1)
+    patches = 0.72 + 0.56 * fbm3(q, 1.0, 3, 41)                       # dry, uneven scumbling
+    band = 1 - 0.38 * np.exp(-(y / 2.4) ** 2)                         # darker just above the table
+    warm = 0.5 + 0.5 * fbm3(q * 0.5 + 7.0, 1.0, 2, 43)
+    hue = WALL_HUE * (1 + 0.10 * (warm[:, None] - 0.5) * np.array([1.0, 0.2, -1.0]))
+    return (v * patches * band * (0.55 + 0.45 * np.asarray(lit)))[:, None] * hue
 
 
 def oak_albedo(P, front=False):
     x, y, z = P[:, 0], P[:, 1], P[:, 2]
     across = y if front else z
-    # long grain: streaks stretched along the planks, with slower drifting bands
-    q = np.stack([x * 0.22, across * 7.0, 0 * x + (3.0 if front else 0.0)], 1)
-    grain = fbm3(q, 1.0, 4, 3)
-    bands = noise3(np.stack([x * 0.05, across * 1.3, 0 * x], 1), 1.0, 7)
-    fine = noise3(np.stack([x * 1.2, across * 38.0, 0 * x], 1), 1.0, 9)
-    a = OAK * (0.62 + 0.55 * grain)[:, None] * (0.86 + 0.28 * bands)[:, None] * (0.92 + 0.16 * fine)[:, None]
-    # darker pores and old staining
-    stain = smoothstep(0.58, 0.82, fbm3(np.stack([x * 0.3, across * 0.4, 0 * x + 5.0], 1), 1.0, 3, 13))[:, None]
-    a = a * (1 - 0.35 * stain) + OAK_DARK * 0.35 * stain
-    if not front:
-        # the joint between two planks, and wear toward the front edge
-        seam = np.exp(-((z - 5.6 - 0.12 * np.sin(x * 0.21)) / 0.045) ** 2)[:, None]
-        a = a * (1 - 0.6 * seam)
-        a = a * (1 + 0.18 * smoothstep(L.TABLE_FRONT - 1.2, L.TABLE_FRONT, z))[:, None]
+    # the grain is quiet: long faint streaks, slow drifts of tone from board to board
+    streak = fbm3(np.stack([x * 0.20, across * 5.0, 0 * x + (3.0 if front else 0.0)], 1), 1.0, 3, 3)
+    drift = noise3(np.stack([x * 0.045, across * 0.5, 0 * x], 1), 1.0, 7)
+    a = OAK * (0.86 + 0.24 * streak)[:, None] * (0.90 + 0.20 * drift)[:, None]
+    stain = smoothstep(0.60, 0.85, fbm3(np.stack([x * 0.22, across * 0.3, 0 * x + 5.0], 1), 1.0, 3, 13))[:, None]
+    a = a * (1 - 0.30 * stain) + OAK_DARK * 0.30 * stain
+    if front:
+        return a * 0.34
+    # rubbed pale and matte toward the front edge; grimy toward the back
+    a = a * (1 + 0.16 * smoothstep(L.TABLE_FRONT - 14.0, L.TABLE_FRONT, z))[:, None]
+    a = a * (1 - 0.18 * smoothstep(-6.0, -22.0, z))[:, None]
+    # the joint between two boards: a wavering dark line, and the boards either side a shade apart
+    joint = JOINT_Z + 0.10 * np.sin(x * 0.19) + 0.05 * np.sin(x * 0.71)
+    a = a * (1 - 0.72 * np.exp(-((z - joint) / 0.035) ** 2))[:, None]
+    a = a * (1 + 0.05 * np.sign(z - joint))[:, None]
     return a
 
 
-def paint(sc, reserve=None, objects=()):
-    """Wall first, then the table: broad lay-in, then smaller brushes where shadows fall."""
-    cv, cam, lt, rng, px = sc.cv, sc.cam, sc.lt, sc.rng, sc.px
-    W, H = sc.W, sc.H
-    overlap = px(7)
+class Setting:
+    softness = {"wall": (0.55, 0.2), "table": (0.50, 0.0), "front": (0.25, 0.0)}
 
-    def free(xy):
-        return np.ones(len(xy), bool) if reserve is None else ~reserve.inside(xy, overlap)
+    def __init__(self, sc):
+        self.sc = sc
+        lt = sc.lt
+        lt.pool = window_pool
+        lt.table_look = lambda Q: OAK * 0.9 * (lt.key * lt.light.L[1] * window_pool(Q)[:, None] + 0.07)
+        lt.wall_look = lambda Q: wall_linear(Q)
+        wall = forms.plane([0, 0, L.WALL_Z], [1.0, 0, 0], [0, 1.0, 0])
+        top = forms.plane([0, 0, 0], [1.0, 0, 0], [0, 0, 1.0], flip=True)
+        front = forms.plane([0, 0, L.TABLE_FRONT], [1.0, 0, 0], [0, -1.0, 0], flip=True)
 
-    # ---- wall
-    wc = wall_colour(sc)
-    horizon = cam.project(np.array([[0.0, 0.0, L.TABLE_BACK]]))[0, 1]
-    ybot = min(H, horizon + px(40))
-    big = Brush(kind="bristle", radius=px(46), nbristle=120, bristle_r=px(3.2), jitter=0.10, thick=1.3,
-                pickup=0.45, aspect=0.45, angle=np.pi / 2)
-    swirl = lambda xy: 0.55 + 0.8 * np.sin(xy[:, 0] / px(420) + 1.3 * np.sin(xy[:, 1] / px(300)))
-    if ybot > 0:
-        for k in range(2):
-            fill_field(cv, (-px(80), -px(80), W + px(80), ybot), wc, swirl, big, rng, length=px(240), spacing=px(24),
-                       curl=0.15, inside=free)
-        fill_field(cv, (0, 0, W, ybot), wc, swirl, Brush(radius=px(26), hardness=0.25, thick=1.1, pickup=0.5), rng,
-                   length=px(150), spacing=px(20), curl=0.2, inside=free)
-        if reserve is not None and reserve.any():
-            # cut in round the objects with smaller brushes, so the wall meets every edge
-            outside = ~reserve
-            x0, y0, x1, y1 = reserve.bbox(pad=int(px(110)))
-            for r, band in ((12.0, 100.0), (5.0, 34.0)):
-                near = lambda xy, band=band: free(xy) & (outside.depth(xy) < px(band))
-                fill_field(cv, (x0, y0, x1, min(y1, ybot)), wc, swirl, Brush(radius=px(r), hardness=0.35, thick=1.2, pickup=0.5),
-                           rng, length=px(r * 5), spacing=px(r * 0.8), curl=0.25, inside=near)
-        fill_field(cv, (0, 0, W, ybot), wc, swirl, Brush(kind="blender", radius=px(34), hardness=0.15, pickup=0.35, load=0.5),
-                   rng, length=px(200), spacing=px(30), curl=0.3, inside=free, paint=Paint.opaque("#000000"))
-        cv.dry_now()
+        def wall_col(P, N, u, v):
+            return lt.tone(wall_linear(P, lt.light.lit(P)))
 
-    # ---- table top
-    top = forms.plane([0, 0, 0], [1.0, 0, 0], [0, 0, 1.0], flip=True)
+        def top_col(P, N, u, v):
+            return lt.shade(oak_albedo(P), P, N, spec=0.03, gloss=6, crowd=1.0)
 
-    def top_col(P, N, u, v):
-        ao = np.ones(len(P))
-        for o in objects:
-            ao = ao * o.ground_ao(P)
-        return lt.shade(oak_albedo(P), P, N, ao=ao, spec=0.05, gloss=8)
+        def front_col(P, N, u, v):
+            edge = smoothstep(0.35, 0.0, v)[:, None]              # the worn arris catches the light
+            return lt.shade(oak_albedo(P, front=True) * (1 + 1.6 * edge), P, N, crowd=0.6)
+        self.forms = [
+            Form("wall", wall, (-70, 70), (0, 52), wall_col, size=30, grid=36, finish=0.2, along="u", broken=0.03,
+                 coverage=1.7, thick=(1.1, 1.25), tol=0.02,
+                 flat=(np.array([0, 0, L.WALL_Z]), np.array([1.0, 0, 0]), np.array([0, 1.0, 0]))),
+            Form("table", top, (-52, 52), (L.TABLE_BACK, L.TABLE_FRONT), top_col, size=15, grid=80, finish=1.0, along="u",
+                 broken=0.05, coverage=1.3, tol=0.02, thick=(0.45, 1.2),
+                 flat=(np.zeros(3), np.array([1.0, 0, 0]), np.array([0, 0, 1.0]))),
+            Form("front", front, (-52, 52), (0, L.TABLE_DROP), front_col, size=9, grid=40, finish=0.6, along="u",
+                 broken=0.05, coverage=1.3,
+                 flat=(np.array([0, 0, L.TABLE_FRONT]), np.array([1.0, 0, 0]), np.array([0, -1.0, 0]))),
+        ]
 
-    def vis(P, N, u, v):
-        return free(cam.project(P))
-    ur, vr = (-46.0, 46.0), (L.TABLE_BACK, L.TABLE_FRONT)
-    grain_brush = Brush(kind="bristle", radius=px(20), nbristle=70, bristle_r=px(2.6), jitter=0.16, thick=1.3,
-                        pickup=0.5, aspect=0.5, angle=np.pi / 2)
-    paint_surface(cv, cam, top, top_col, grain_brush, rng, urange=ur, vrange=vr, length=px(170), spacing=px(13),
-                  grid=90, visible=vis, coverage=1.3)
-    paint_surface(cv, cam, top, top_col, grain_brush.but(radius=px(9), nbristle=36, bristle_r=px(1.8)), rng,
-                  urange=ur, vrange=vr, length=px(90), spacing=px(7), grid=90, visible=vis)
-    # shadows and their edges, with progressively smaller brushes
-    for r, probe, tol in ((7.0, 16, 0.020), (3.2, 8, 0.022), (1.6, 4, 0.025)):
-        paint_surface(cv, cam, top, top_col, Brush(radius=px(r), hardness=0.35, thick=1.1, pickup=0.5), rng,
-                      urange=(-34, 40), vrange=(-28, L.TABLE_FRONT), length=px(r * 5), spacing=px(r * 0.8), grid=140,
-                      visible=vis, detail=(tol, px(probe)))
-    if reserve is not None and reserve.any():
-        # and the table likewise, close in round every object
-        outside = ~reserve
-        near = lambda P, N, u, v: vis(P, N, u, v) & (outside.depth(cam.project(P)) < px(26))
-        for r in (4.0, 1.8):
-            paint_surface(cv, cam, top, top_col, Brush(radius=px(r), hardness=0.4, thick=1.1, pickup=0.5), rng,
-                          urange=(-34, 40), vrange=(-28, L.TABLE_FRONT), length=px(r * 5), spacing=px(r * 0.8), grid=140,
-                          visible=near)
-    paint_surface(cv, cam, top, top_col, Brush(kind="blender", radius=px(5), hardness=0.2, pickup=0.3, load=0.5), rng,
-                  urange=(-34, 40), vrange=(-28, L.TABLE_FRONT), length=px(40), spacing=px(9), grid=90, visible=vis,
-                  paint=Paint.opaque("#000000"), detail=None)
-    cv.dry_now()
+    def occluders(self):
+        return []
 
-    # ---- where the table meets the wall, far back: no line, only darkness thickening
-    haze = Paint.glaze("#120d08", 1.0)
-    for k, (band, th) in enumerate(((95, 0.30), (60, 0.45), (34, 0.55))):
-        y0, y1 = horizon - px(band * 0.55), horizon + px(band)
-        fill_field(cv, (0, y0, W, y1), None, lambda xy: 0.03 * np.sin(xy[:, 0] / px(200)),
-                   Brush(radius=px(band * 0.42), hardness=0.05, thick=th, pickup=0.0), rng, length=px(300),
-                   spacing=px(band * 0.22), inside=free, paint=haze)
-    cv.dry_now()
+    def glows(self):
+        return []
 
-    # ---- the table's front face and its worn edge
-    front = forms.plane([0, 0, L.TABLE_FRONT], [1.0, 0, 0], [0, -1.0, 0], flip=True)
+    def groups(self):
+        return [(1e9 - i, [f]) for i, f in enumerate(self.forms)]
 
-    def front_col(P, N, u, v):
-        edge = smoothstep(0.5, 0.0, v)[:, None]              # the arris catches the light
-        a = oak_albedo(P, front=True) * 0.55
-        return lt.shade(a * (1 + 0.5 * edge), P, N, spec=0.04, gloss=8)
-    paint_surface(cv, cam, front, front_col, grain_brush.but(radius=px(12), nbristle=44, bristle_r=px(2.0)), rng,
-                  urange=ur, vrange=(0, L.TABLE_DROP), length=px(150), spacing=px(9), grid=60, visible=vis, coverage=1.4)
-    paint_surface(cv, cam, front, front_col, Brush(radius=px(2.5), hardness=0.5, thick=1.1, pickup=0.5), rng,
-                  urange=ur, vrange=(0, 0.9), length=px(40), spacing=px(2.4), grid=60, visible=vis)
-    paint_surface(cv, cam, front, front_col, Brush(radius=px(4.0), hardness=0.4, thick=1.2, pickup=0.5), rng,
-                  urange=ur, vrange=(0, L.TABLE_DROP), length=px(30), spacing=px(3.2), grid=60, visible=vis, coverage=1.2)
-    for r, probe in ((2.4, 11), (1.2, 4)):          # shadows falling on the front face, drawn to their edges
-        paint_surface(cv, cam, front, front_col, Brush(radius=px(r), hardness=0.45, thick=1.1, pickup=0.55), rng,
-                      urange=(-20, 22), vrange=(0, L.TABLE_DROP), length=px(r * 3.2), spacing=px(r * 0.8), grid=160,
-                      visible=vis, detail=(0.02, px(probe)))
-    cv.dry_now()
-    # the arris itself: rubbed pale by years of sleeves, with nicks where the wood has been knocked
-    xs = np.linspace(-46, 46, 500)
-    edge = cam.project(np.stack([xs, np.zeros_like(xs), np.full_like(xs, L.TABLE_FRONT)], 1))
-    wear = 0.35 + 0.65 * np.clip(0.5 + 0.9 * (fbm3(np.stack([xs * 0.35, 0 * xs, 0 * xs + 2.0], 1), 1.0, 3, 51) - 0.5) * 2, 0, 1)
-    tone = lt.shade(OAK * 2.1, np.stack([xs, np.zeros_like(xs), np.full_like(xs, L.TABLE_FRONT)], 1),
-                    np.tile([0.0, 0.7, 0.7], (len(xs), 1)))
-    for a0 in range(0, len(xs) - 12, 12):
-        seg = slice(a0, a0 + 14)
-        if free(edge[seg]).all():
-            cv.stroke(edge[seg] + [0, px(0.6)], Paint.opaque(np.clip(tone[a0 + 6], 0, 1)),
-                      Brush(kind="bristle", radius=px(2.2), nbristle=10, bristle_r=px(0.8), jitter=0.2, thick=0.9,
-                            pickup=0.3, tooth=0.6, load=6), wear[seg])
-    cv.dry_now()
-    # a mark cut into the front edge, as painters of such pictures liked to leave
-    _inscribe(sc, "CLAUDE F. 2026", x=11.0, y=-1.05, size=0.58)
-    cv.dry_now()
+    def register(self, studio):
+        studio.softness_of.update(self.softness)
+        studio.hook("dead", self.blend_wall)
+        studio.hook("colour", self.blend_wall)
+        studio.hook("colour", self.lose_far_edge)
+        studio.hook("model", self.lose_far_edge)
+        studio.hook("finish", self.wear)
 
+    def lose_far_edge(self, studio):
+        """Where the table meets the wall, far back, the line is let go: firm for a stretch, then lost."""
+        sc = self.sc
+        cv, cam, rng, px = sc.cv, sc.cam, sc.rng, sc.px
+        table, wall = studio.regions["table"], studio.regions["wall"]
+        xs = np.linspace(-52, 52, 260)
+        line = cam.project(np.stack([xs, 0 * xs, np.full_like(xs, L.TABLE_BACK)], 1))
+        lose = 0.35 + 0.65 * np.clip(0.5 + 1.3 * (fbm3(np.stack([xs * 0.09, 0 * xs, 0 * xs + 4.0], 1), 1.0, 2, 57) - 0.5) * 2, 0, 1)
+        lose = np.maximum(lose, smoothstep(14.0, 34.0, np.abs(xs - 2.0)))          # always lost toward the sides
+        batch = Batch(cv, Brush(kind="blender", radius=px(1.0), hardness=0.05, pickup=0.5, load=0.5))
+        for i in range(0, len(xs) - 6, 3):
+            seg = line[i:i + 7]
+            mid = seg[3]
+            if not (table.inside((mid + [0, px(6)])[None])[0] and wall.inside((mid - [0, px(6)])[None])[0]):
+                continue                                    # something stands in front of the edge here
+            if lose[i + 3] < 0.3:
+                continue
+            for dy in (-0.4, 0.5):
+                batch.add(seg + [0, px(dy * 10 * lose[i + 3])], np.zeros(3), 1.0, 5.0 + 13.0 * lose[i + 3])
+        batch.flush(rng=rng)
 
-_GLYPHS = {
-    "C": [[(1, 0.85), (0.7, 1), (0.3, 1), (0, 0.75), (0, 0.25), (0.3, 0), (0.7, 0), (1, 0.15)]],
-    "L": [[(0, 1), (0, 0), (0.9, 0)]],
-    "A": [[(0, 0), (0.5, 1), (1, 0)], [(0.2, 0.38), (0.8, 0.38)]],
-    "U": [[(0, 1), (0, 0.25), (0.3, 0), (0.7, 0), (1, 0.25), (1, 1)]],
-    "D": [[(0, 0), (0, 1), (0.6, 1), (1, 0.7), (1, 0.3), (0.6, 0), (0, 0)]],
-    "E": [[(0.9, 1), (0, 1), (0, 0), (0.9, 0)], [(0, 0.52), (0.65, 0.52)]],
-    "F": [[(0.9, 1), (0, 1), (0, 0)], [(0, 0.52), (0.65, 0.52)]],
-    ".": [[(0.1, 0.02), (0.18, 0.06)]],
-    "2": [[(0, 0.78), (0.3, 1), (0.7, 1), (1, 0.75), (0.9, 0.5), (0, 0), (1, 0)]],
-    "0": [[(0.5, 1), (0.1, 0.8), (0, 0.5), (0.1, 0.2), (0.5, 0), (0.9, 0.2), (1, 0.5), (0.9, 0.8), (0.5, 1)]],
-    "6": [[(0.9, 0.95), (0.4, 0.9), (0.05, 0.5), (0.1, 0.15), (0.5, 0), (0.9, 0.18), (0.9, 0.42), (0.5, 0.58), (0.1, 0.4)]],
-    " ": [],
-}
+    def blend_wall(self, studio):
+        """Work the wall together with a big soft brush while it is wet, so it is one thin uneven glow."""
+        from atelier.brushwork import fill_field
+        sc = self.sc
+        wall = studio.regions["wall"]
+        px = sc.px
+        for r in (30.0, 16.0):
+            fill_field(sc.cv, wall.bbox(), None, lambda xy: 0.5 * np.sin(xy[:, 0] / px(260.0) + xy[:, 1] / px(190.0)),
+                       Brush(kind="blender", radius=px(r), hardness=0.1, pickup=0.5, load=0.5), sc.rng, length=px(r * 6),
+                       spacing=px(r * 0.7), stencil=wall, margin=px(r * 0.8), paint=Paint.opaque("#000000"), curl=0.3)
 
+    def wear(self, studio):
+        """What use has done to the table: knife marks, a crack running in from the edge, the pale
+        rubbed arris with its nicks, a ring where something wet once stood."""
+        sc = self.sc
+        cv, cam, lt, rng, px = sc.cv, sc.cam, sc.lt, sc.rng, sc.px
+        table = studio.regions["table"]
 
-def _inscribe(sc, text, x, y, size):
-    """Letters scratched into the table's front face: each a few knife strokes, darker in the cut,
-    with a thread of light along its lower lip."""
-    cv, cam, px = sc.cv, sc.cam, sc.px
-    z = L.TABLE_FRONT + 0.01
-    pen = x
-    for ch in text:
-        for stroke in _GLYPHS.get(ch, []):
-            pts = np.array([[pen + a * size * 0.7, y + b * size, z] for a, b in stroke])
+        def on_table(pts):
             xy = cam.project(pts)
-            if len(xy) > 2:
-                from atelier.geom import catmull
-                xy = catmull(xy, max(1.0, px(2.0)))
-            cv.stroke(xy, Paint.opaque("#150e08"), Brush(radius=px(1.4), hardness=0.5, thick=1.2, pickup=0.2), 1.0)
-            cv.stroke(xy + [px(0.8), px(1.7)], Paint.opaque("#8f7350"), Brush(radius=px(0.6), hardness=0.5, thick=0.5,
-                      pickup=0.2), 0.7)
-        pen += size * (0.5 if ch in " ." else 1.0)
+            return xy, table.inside(xy, px(1.0))
+        tone = lambda P: lt.shade(oak_albedo(P), P, np.tile([0.0, 1.0, 0.0], (len(P), 1)), crowd=0.0)
+        # knife marks: short straight scores at all angles, each a dark cut with a pale lip
+        dark = Batch(cv, Brush(radius=px(0.6), hardness=0.5, thick=0.5, pickup=0.2, press_radius=0.6))
+        pale = Batch(cv, Brush(radius=px(0.5), hardness=0.5, thick=0.35, pickup=0.2, press_radius=0.6))
+        for _ in range(34):
+            c = np.array([rng.uniform(-20, 22), 0.0, rng.uniform(-6, 16.4)])
+            ang, ln = rng.uniform(0, np.pi), rng.uniform(0.4, 1.8)
+            d = np.array([np.cos(ang), 0, np.sin(ang)])
+            pts = c + np.linspace(-ln / 2, ln / 2, 9)[:, None] * d
+            xy, ok = on_table(pts)
+            if not ok.all():
+                continue
+            col = tone(c[None])[0]
+            dark.add(xy, np.clip(col * 0.72, 0, 1), np.sin(np.linspace(0.3, np.pi - 0.3, 9)), tscale=rng.uniform(0.4, 1.0))
+            pale.add(xy + [0, px(1.0)], np.clip(col * 1.15 + 0.01, 0, 1), np.sin(np.linspace(0.3, np.pi - 0.3, 9)) * 0.6,
+                     tscale=rng.uniform(0.4, 1.0))
+        dark.flush()
+        pale.flush()
+        # a crack running in from the front edge along the grain
+        xs = np.linspace(8.0, 12.4, 60)
+        crack = np.stack([xs, 0 * xs, 16.0 + 0.22 * np.sin(xs * 1.3) + 0.09 * np.sin(xs * 5.3) - 0.02 * (xs - 8.0) ** 2], 1)
+        xy, ok = on_table(crack)
+        idx = np.nonzero(ok)[0]
+        for run in np.split(idx, np.nonzero(np.diff(idx) > 1)[0] + 1):
+            if len(run) > 3:
+                cv.stroke(xy[run], Paint.opaque("#1d130b"), Brush(radius=px(0.8), hardness=0.5, thick=0.9, pickup=0.2,
+                          press_radius=0.7), np.linspace(1.0, 0.15, len(run)))
+        cv.dry_now()
+        # the arris: rubbed pale by years of sleeves, broken by nicks
+        xs = np.linspace(-52, 52, 620)
+        edge3 = np.stack([xs, np.zeros_like(xs), np.full_like(xs, L.TABLE_FRONT)], 1)
+        edge = cam.project(edge3)
+        free = studio.regions["front"].inside(edge + [0, px(2.5)]) | table.inside(edge - [0, px(2.5)])
+        wear = np.clip(0.55 + 1.1 * (fbm3(np.stack([xs * 0.4, 0 * xs, 0 * xs + 2.0], 1), 1.0, 3, 51) - 0.5), 0, 1)
+        col = lt.shade(OAK * 1.45, edge3, np.tile([0.0, 0.75, 0.66], (len(xs), 1)), crowd=0.8)
+        for a0 in range(0, len(xs) - 10, 9):
+            seg = slice(a0, a0 + 11)
+            if free[seg].all() and rng.random() > 0.08:
+                cv.stroke(edge[seg] + [0, px(0.4)], Paint.opaque(np.clip(col[a0 + 5], 0, 1)),
+                          Brush(kind="bristle", radius=px(1.8), nbristle=9, bristle_r=px(0.75), jitter=0.2, thick=0.9,
+                                pickup=0.3, tooth=0.6, load=6), wear[seg])
+        cv.dry_now()
+        self._sign(studio)
+
+    def _sign(self, studio):
+        """A small painted monogram and date on the table's front face, in a tone of the wood."""
+        sc = self.sc
+        cv, cam, rng, px = sc.cv, sc.cam, sc.rng, sc.px
+        glyphs = {
+            "C": [[(1, 0.82), (0.72, 1), (0.3, 1), (0.02, 0.74), (0, 0.26), (0.3, 0), (0.72, 0), (1, 0.2)]],
+            "f": [[(0.85, 0.98), (0.55, 1.05), (0.38, 0.8), (0.34, 0)], [(0.1, 0.55), (0.7, 0.57)]],
+            "2": [[(0.02, 0.76), (0.3, 1), (0.7, 1), (0.98, 0.76), (0.86, 0.5), (0.02, 0), (1, 0.02)]],
+            "0": [[(0.5, 1), (0.12, 0.8), (0, 0.5), (0.12, 0.2), (0.5, 0), (0.88, 0.2), (1, 0.5), (0.88, 0.8), (0.5, 1)]],
+            "6": [[(0.9, 0.95), (0.42, 0.9), (0.06, 0.5), (0.1, 0.16), (0.5, 0), (0.9, 0.18), (0.9, 0.42), (0.5, 0.58), (0.12, 0.42)]],
+            ".": [[(0.1, 0.02), (0.2, 0.07)]], " ": []}
+        from atelier.geom import catmull
+        pen, y, size, z = 15.6, -0.92, 0.42, L.TABLE_FRONT + 0.01
+        for ch in "C. f. 2026":
+            for stroke in glyphs.get(ch, []):
+                pts = np.array([[pen + a * size * 0.7 + rng.normal(0, 0.012), y + b * size + rng.normal(0, 0.012), z]
+                                for a, b in stroke])
+                xy = cam.project(pts)
+                if len(xy) > 2:
+                    xy = catmull(xy, max(1.0, px(1.6)))
+                cv.stroke(xy, Paint.opaque("#7a5c3a"), Brush(radius=px(0.9), hardness=0.4, thick=0.55, pickup=0.2,
+                          press_radius=0.6), np.clip(0.55 + 0.45 * np.sin(np.linspace(0.4, 2.8, len(xy))), 0, 1))
+            pen += size * (0.42 if ch in " ." else 0.88)
+        cv.dry_now()

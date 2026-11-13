@@ -12,9 +12,9 @@ class Batch:
         self.cv = canvas
         self.brush = brush
         self.body = body
-        self.polys, self.K, self.S, self.press, self.rscale = [], [], [], [], []
+        self.polys, self.K, self.S, self.press, self.rscale, self.tscale = [], [], [], [], [], []
 
-    def add(self, poly, rgb=None, pressure=1.0, rscale=1.0, paint=None):
+    def add(self, poly, rgb=None, pressure=1.0, rscale=1.0, paint=None, tscale=1.0):
         poly = np.asarray(poly, dtype=np.float32)
         if len(poly) == 0:
             return
@@ -27,6 +27,7 @@ class Batch:
         self.S.append(S)
         self.press.append(np.broadcast_to(np.asarray(pressure, np.float32), (len(poly),)))
         self.rscale.append(rscale)
+        self.tscale.append(tscale)
 
     def flush(self, order="shuffle", rng=None):
         n = len(self.polys)
@@ -38,8 +39,9 @@ class Batch:
         elif isinstance(order, np.ndarray):
             idx = order
         self.cv.strokes([self.polys[i] for i in idx], np.array(self.K)[idx], np.array(self.S)[idx],
-                        self.brush, [self.press[i] for i in idx], np.array(self.rscale)[idx])
-        self.polys, self.K, self.S, self.press, self.rscale = [], [], [], [], []
+                        self.brush, [self.press[i] for i in idx], np.array(self.rscale)[idx],
+                        np.array(self.tscale)[idx])
+        self.polys, self.K, self.S, self.press, self.rscale, self.tscale = [], [], [], [], [], []
         return n
 
 
@@ -61,7 +63,7 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
                   urange=(0.0, 1.0), vrange=(0.0, 1.0), npts=7, visible=None, body=5.0,
                   coverage=1.0, wobble=0.25, head=0.25, tail=0.3, press=(0.25, 1.0), rjit=0.0,
                   order="shuffle", paint=None, grid=28, slant=0.0, min_facing=0.02,
-                  stencil=None, margin=None, detail=None):
+                  stencil=None, margin=None, detail=None, thick_by_value=None, broken=0.0, recolour=None):
     """Cover a parametric surface with strokes that follow one of its parameter directions.
 
     surf(u, v)            -> points P (..., 3) and outward normals N (..., 3)
@@ -69,6 +71,10 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
     visible(P, N, u, v)   -> optional boolean mask (hidden parts are simply not painted)
     length, spacing       -> stroke length and the gap between neighbouring strokes, in pixels
     stencil, margin       -> keep the brush inside a drawn outline (margin defaults to its radius)
+    thick_by_value=(a, b) -> paint thin (a) in the darks and thick (b) in the lights, as in oil
+                             painting, so darks stay transparent and lights have body
+    broken                -> how much each stroke's mixture strays from the exact colour (broken colour)
+    recolour(rgb)         -> last say on each stroke's colour (e.g. turn it to a monochrome underpainting)
     detail=(tol, probe)   -> only place strokes where the colour changes by more than `tol`
                              within `probe` px: a smaller brush going back in where it is needed.
                              (tol, probe, "calm") does the reverse: only where it does not change,
@@ -92,6 +98,19 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
     Nc = Nc / np.maximum(np.linalg.norm(Nc, axis=-1, keepdims=True), 1e-9)
     facing = np.sum(Nc * cam.to_eye(Pc), axis=-1)
     area = np.where(facing > -0.15, area, 0.0)
+    # only the part of the surface that falls on the canvas (and inside its outline) needs strokes
+    bx0, by0, bx1, by1 = 0.0, 0.0, float(cv.W), float(cv.H)
+    if stencil is not None:
+        sx0, sy0, sx1, sy1 = stencil.bbox(pad=int(length))
+        bx0, by0, bx1, by1 = max(bx0, sx0), max(by0, sy0), min(bx1, sx1), min(by1, sy1)
+    cx0 = np.minimum(np.minimum(xy[:-1, :-1, 0], xy[1:, :-1, 0]), np.minimum(xy[:-1, 1:, 0], xy[1:, 1:, 0]))
+    cx1 = np.maximum(np.maximum(xy[:-1, :-1, 0], xy[1:, :-1, 0]), np.maximum(xy[:-1, 1:, 0], xy[1:, 1:, 0]))
+    cy0 = np.minimum(np.minimum(xy[:-1, :-1, 1], xy[1:, :-1, 1]), np.minimum(xy[:-1, 1:, 1], xy[1:, 1:, 1]))
+    cy1 = np.maximum(np.maximum(xy[:-1, :-1, 1], xy[1:, :-1, 1]), np.maximum(xy[:-1, 1:, 1], xy[1:, 1:, 1]))
+    ox = np.clip(np.minimum(cx1, bx1) - np.maximum(cx0, bx0), 0, None)
+    oy = np.clip(np.minimum(cy1, by1) - np.maximum(cy0, by0), 0, None)
+    share = (ox * oy) / np.maximum((cx1 - cx0) * (cy1 - cy0), 1e-9)
+    area = area * np.clip(share * 1.15, 0, 1)
     want = area / (0.62 * length * spacing) * coverage
     total = want.sum()
     if total < 0.5:
@@ -103,6 +122,14 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
     ci, cj = np.unravel_index(cell, want.shape)
     us = gu[ci] + rng.random(M) * (gu[1] - gu[0])
     vs = gv[cj] + rng.random(M) * (gv[1] - gv[0])
+    if stencil is not None or True:
+        # drop seeds that land off the canvas before doing any more work on them
+        sxy = cam.project(surf(us, vs)[0])
+        keep = (sxy[:, 0] > bx0 - length) & (sxy[:, 0] < bx1 + length) & (sxy[:, 1] > by0 - length) & (sxy[:, 1] < by1 + length)
+        us, vs, ci, cj = us[keep], vs[keep], ci[keep], cj[keep]
+        M = len(us)
+        if M == 0:
+            return 0
     su = np.maximum(du[ci, cj], 1e-6)
     sv = np.maximum(dv[ci, cj], 1e-6)
 
@@ -141,6 +168,19 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
 
     mid = npts // 2
     cols = color(Pp[:, mid], Np[:, mid], Up[:, mid], Vp[:, mid]) if paint is None else None
+    ts = np.ones(M)
+    if cols is not None:
+        if recolour is not None:
+            cols = recolour(cols)
+        if broken > 0:
+            # no two brush-loads are mixed quite alike: a little lighter or darker, warmer or cooler
+            k = 1 + broken * rng.normal(0, 1, (M, 1))
+            warm = broken * 0.6 * rng.normal(0, 1, (M, 1))
+            cols = np.clip(cols * k * (1 + warm * np.array([1.0, 0.0, -1.0])), 0, 1)
+        if thick_by_value is not None:
+            y = 0.30 * cols[:, 0] + 0.59 * cols[:, 1] + 0.11 * cols[:, 2]
+            t = np.clip((y - 0.06) / 0.40, 0, 1)
+            ts = thick_by_value[0] + (thick_by_value[1] - thick_by_value[0]) * t * t * (3 - 2 * t)
     batch = Batch(cv, brush, body)
     for i in range(M):
         run = _visible_run(ok[i])
@@ -151,7 +191,98 @@ def paint_surface(cv, cam, surf, color, brush, rng, *, length=40.0, spacing=6.0,
         pr = taper(n, head, tail, press[0], press[1])
         rs = 1.0 + rjit * rng.normal()
         if paint is None:
-            batch.add(xyp[i, a_:b_], cols[i], pr, max(0.4, rs))
+            batch.add(xyp[i, a_:b_], cols[i], pr, max(0.4, rs), tscale=ts[i])
+        else:
+            batch.add(xyp[i, a_:b_], None, pr, max(0.4, rs), paint=paint)
+    return batch.flush(order=order, rng=rng)
+
+
+def paint_solid(cv, cam, surf, color, brush, rng, *, region, flow, which="u", length=40.0, spacing=6.0,
+                npts=7, coverage=1.0, wobble=0.25, bend=0.2, head=0.25, tail=0.3, press=(0.25, 1.0), rjit=0.0,
+                order="shuffle", paint=None, margin=None, detail=None, thick_by_value=None, broken=0.0,
+                recolour=None, visible=None, body=5.0):
+    """Cover what shows of a sculpted solid with strokes that follow its form.
+
+    surf(x, y)            -> the point of the solid under canvas spot (x, y) and its normal (zero if none)
+    region                -> the part of the canvas this form shows in (a Stencil)
+    flow(P, N, which)     -> the direction (in space) a stroke should run at P: which="u" one way
+                             over the form, "v" across it
+    The other arguments are as for paint_surface.
+    """
+    A = region.area()
+    M = int(round(A / (0.62 * length * spacing) * coverage))
+    if M <= 0:
+        return 0
+    ys, xs = np.nonzero(region.mask)
+    pick = rng.integers(0, len(xs), M)
+    seeds = np.stack([xs[pick] + rng.random(M), ys[pick] + rng.random(M)], axis=1)
+    P, N = surf(seeds[:, 0], seeds[:, 1])
+    keep = np.any(N != 0, axis=1)
+    if visible is not None:
+        keep &= visible(P, N, seeds[:, 0], seeds[:, 1])
+    seeds, P, N = seeds[keep], P[keep], N[keep]
+    M = len(seeds)
+    if M == 0:
+        return 0
+
+    if detail is not None and color is not None:
+        tol, probe = detail[0], detail[1]
+        calm = len(detail) > 2 and detail[2] == "calm"
+        c0 = color(P, N, seeds[:, 0], seeds[:, 1])
+        dmax = np.zeros(M)
+        for dx, dy in ((probe, 0), (-probe, 0), (0, probe), (0, -probe)):
+            q = seeds + np.array([dx, dy])
+            Pq, Nq = surf(q[:, 0], q[:, 1])
+            there = np.any(Nq != 0, axis=1)
+            if there.any():
+                cq = color(Pq[there], Nq[there], q[there, 0], q[there, 1])
+                dmax[there] = np.maximum(dmax[there], np.abs(cq - c0[there]).max(axis=1))
+        keep = (dmax <= tol) if calm else (dmax > tol)
+        seeds, P, N = seeds[keep], P[keep], N[keep]
+        M = len(seeds)
+        if M == 0:
+            return 0
+
+    d3 = flow(P, N, which)
+    d2 = cam.project(P + d3 * 0.05) - cam.project(P)
+    d2 = d2 / np.maximum(np.linalg.norm(d2, axis=1, keepdims=True), 1e-9)
+    nr = np.stack([-d2[:, 1], d2[:, 0]], axis=1)
+    k = np.linspace(-0.5, 0.5, npts)[None, :]
+    side = (rng.normal(0, 1, (M, 1)) * wobble * spacing * k * 2
+            + bend * rng.normal(0, 1, (M, 1)) * length * (k * k - 1.0 / 12.0))
+    xyp = seeds[:, None, :] + (k * length)[..., None] * d2[:, None, :] + side[..., None] * nr[:, None, :]
+    ok = region.inside(xyp.reshape(-1, 2), brush.radius * 0.85 if margin is None else margin).reshape(M, npts)
+
+    cols = color(P, N, seeds[:, 0], seeds[:, 1]) if paint is None else None
+    return _lay_strokes(cv, brush, body, xyp, ok, cols, paint, rng, head, tail, press, rjit, order,
+                        thick_by_value, broken, recolour)
+
+
+def _lay_strokes(cv, brush, body, xyp, ok, cols, paint, rng, head, tail, press, rjit, order,
+                 thick_by_value, broken, recolour):
+    M = len(xyp)
+    ts = np.ones(M)
+    if cols is not None:
+        if recolour is not None:
+            cols = recolour(cols)
+        if broken > 0:
+            k = 1 + broken * rng.normal(0, 1, (M, 1))
+            warm = broken * 0.6 * rng.normal(0, 1, (M, 1))
+            cols = np.clip(cols * k * (1 + warm * np.array([1.0, 0.0, -1.0])), 0, 1)
+        if thick_by_value is not None:
+            y = 0.30 * cols[:, 0] + 0.59 * cols[:, 1] + 0.11 * cols[:, 2]
+            t = np.clip((y - 0.06) / 0.40, 0, 1)
+            ts = thick_by_value[0] + (thick_by_value[1] - thick_by_value[0]) * t * t * (3 - 2 * t)
+    batch = Batch(cv, brush, body)
+    for i in range(M):
+        run = _visible_run(ok[i])
+        if run is None or run[1] - run[0] < 2:
+            continue
+        a_, b_ = run
+        pr = taper(b_ - a_, head, tail, press[0], press[1])
+        rs = 1.0 + rjit * rng.normal()
+        if paint is None:
+            batch.add(xyp[i, a_:b_], cols[i], pr, max(0.4, rs), tscale=ts[i])
         else:
             batch.add(xyp[i, a_:b_], None, pr, max(0.4, rs), paint=paint)
     return batch.flush(order=order, rng=rng)

@@ -160,13 +160,14 @@ class Table1D:
         return np.interp(x, self.x, self.cols[name])
 
 
-def loft(stations, ey=0.9, ez=0.85, carve=None):
+def loft(stations, ey=0.9, ez=0.85, carve=None, shape=None):
     """A body built from cross-sections, like a boat hull.
 
     stations: Table1D over x with columns yc (centre height), w (half width),
     ht / hb (half heights above / below the centre), and optionally ey / ez
     (how square the section is: 1 = elliptical, smaller = boxier).
     carve(x, y) -> 0..1 hollows the sides: the half width is scaled by (1 - carve).
+    shape(x, y, z, yc) -> (y, z) has the last word on each cross-section.
     u: position along the body; v: angle round the section (0 = top, pi/2 = +z side).
     """
     has_e = "ez" in stations.cols
@@ -186,6 +187,8 @@ def loft(stations, ey=0.9, ez=0.85, carve=None):
         z = stations("w", u) * spow(s, e_z)
         if carve is not None:
             z = z * (1 - carve(x, y))
+        if shape is not None:               # shape(x, y, z, yc) -> (y, z): crests, ridges, swellings
+            y, z = shape(x, y, z, stations("yc", u) + 0 * v)
         return np.stack([x, y, z], -1)
 
     def surf(u, v):
@@ -306,5 +309,30 @@ def toward_eye(surf, cam):
         P, N = surf(u, v)
         s = np.sign(np.sum(N * cam.to_eye(P), axis=-1, keepdims=True))
         return P, N * np.where(s == 0, 1, s)
+    return out
+
+
+def roughened(surf, amount, scale=1.0, seed=0):
+    """A form that is not quite true: pushed in and out along its normals by slow, repeatable
+    unevenness, the way anything made by hand or grown is. amount in cm; scale: lumps per cm."""
+    def height(P):
+        return amount * 2.0 * (fbm3(P * scale, 1.0, 2, 300 + seed) - 0.5)
+
+    def out(u, v):
+        u = np.asarray(u, dtype=np.float64)
+        v = np.asarray(v, dtype=np.float64)
+        P, N = surf(u, v)
+        P2 = P + N * height(P)[..., None]
+        du = 1e-3 * (np.ptp(u) + 1e-3) if np.ndim(u) else 1e-3
+        dv = 1e-3 * (np.ptp(v) + 1e-3) if np.ndim(v) else 1e-3
+        du, dv = max(du, 1e-4), max(dv, 1e-4)
+        Pa, Na = surf(u + du, v)
+        Pb, Nb = surf(u, v + dv)
+        Pa = Pa + Na * height(Pa)[..., None]
+        Pb = Pb + Nb * height(Pb)[..., None]
+        n = np.cross(Pa - P2, Pb - P2)
+        n = n / np.maximum(np.linalg.norm(n, axis=-1, keepdims=True), 1e-12)
+        n = n * np.sign(np.sum(n * N, axis=-1, keepdims=True) + 1e-12)
+        return P2, n
     return out
 

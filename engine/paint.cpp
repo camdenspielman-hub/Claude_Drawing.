@@ -345,14 +345,15 @@ void stroke(Canvas *c, const Brush *b, const float *K, const float *S, int n,
     }
 }
 
-// Many strokes with one brush: per-stroke paint, radius scale and seed.
+// Many strokes with one brush: per-stroke paint, radius scale, thickness scale and seed.
 void strokes(Canvas *c, const Brush *b, int nstrokes, const int *counts,
              const float *xs, const float *ys, const float *ps,
-             const float *Ks, const float *Ss, const float *rscale) {
+             const float *Ks, const float *Ss, const float *rscale, const float *tscale) {
     Brush bb = *b;
     size_t off = 0;
     for (int i = 0; i < nstrokes; ++i) {
         bb.radius = b->radius * (rscale ? rscale[i] : 1.f);
+        bb.thick = b->thick * (tscale ? tscale[i] : 1.f);
         bb.seed = b->seed + 7919u * (uint32_t)(i + 1);
         stroke(c, &bb, Ks + (size_t)i * 3, Ss + (size_t)i * 3, counts[i], xs + off, ys + off, ps + off);
         off += counts[i];

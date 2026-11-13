@@ -29,7 +29,7 @@ class _Brush(ctypes.Structure):
 
 _lib.stroke.argtypes = [ctypes.POINTER(_Canvas), ctypes.POINTER(_Brush), _fp, _fp, ctypes.c_int, _fp, _fp, _fp]
 _lib.strokes.argtypes = [ctypes.POINTER(_Canvas), ctypes.POINTER(_Brush), ctypes.c_int, _ip,
-                         _fp, _fp, _fp, _fp, _fp, _fp]
+                         _fp, _fp, _fp, _fp, _fp, _fp, _fp]
 _lib.dry_canvas.argtypes = [ctypes.POINTER(_Canvas)]
 _lib.render.argtypes = [ctypes.POINTER(_Canvas), _fp, ctypes.c_float, ctypes.c_float, ctypes.c_float,
                         ctypes.c_float]
@@ -233,8 +233,9 @@ class Canvas:
                 rec.acc = 0.0
                 rec.snap(self)
 
-    def strokes(self, polys, K, S, brush, pressures=None, rscale=None):
-        """Many strokes with one brush. polys: list of (N, 2); K, S: (M, 3) paint per stroke."""
+    def strokes(self, polys, K, S, brush, pressures=None, rscale=None, tscale=None):
+        """Many strokes with one brush. polys: list of (N, 2); K, S: (M, 3) paint per stroke.
+        rscale / tscale: per-stroke multipliers of the brush's radius and paint thickness."""
         m = len(polys)
         if m == 0:
             return
@@ -251,6 +252,8 @@ class Canvas:
         S = np.ascontiguousarray(S, dtype=np.float32).reshape(m, 3)
         rs = np.ascontiguousarray(np.ones(m, np.float32) if rscale is None
                                   else np.asarray(rscale, np.float32))
+        ts = np.ascontiguousarray(np.ones(m, np.float32) if tscale is None
+                                  else np.asarray(tscale, np.float32))
         b = brush._c(self._next_seed())
         self._seed += m
         rec = self.recorder
@@ -275,7 +278,7 @@ class Canvas:
                 _lib.strokes(ctypes.byref(self._c), ctypes.byref(b), int(b_ - a_),
                              counts[a_:b_].ctypes.data_as(_ip),
                              _ptr(xs[off[a_]:]), _ptr(ys[off[a_]:]), _ptr(ps[off[a_]:]),
-                             _ptr(K[a_:]), _ptr(S[a_:]), _ptr(rs[a_:]))
+                             _ptr(K[a_:]), _ptr(S[a_:]), _ptr(rs[a_:]), _ptr(ts[a_:]))
             if rec is not None and b_ < m:
                 rec.snap(self)
         self.nstrokes += m

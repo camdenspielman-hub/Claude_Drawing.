@@ -1,309 +1,322 @@
-"""The hourglass: two turned wooden plates, three spindles, a waisted glass, and the sand nearly run out."""
+"""The hourglass, knocked over and lying on its side.
+
+Made as they were made around 1650: two separately blown bulbs, a little unlike each other,
+butted neck to neck and bound at the waist with cloth and thread; red-painted parchment bands
+where the domed ends sit in two octagonal oak boards; four hand-turned posts, blackened and worn
+brown on their swellings. Lying down, the fine grey sand has run level in the low side of each bulb.
+"""
 import numpy as np
 
 from atelier import forms
-from atelier.brushwork import paint_surface, paint_form, line
+from atelier.brushwork import Batch, paint_surface
 from atelier.canvas import Brush, Paint
 from atelier.forms import Profile, fbm3, noise3
-from atelier.geom import Ball, Capsule, Disc, normalize, smoothstep
-from atelier.shading import lin
-from atelier.stencil import Stencil
+from atelier.geom import Ball, Capsule, Disc, Glow, normalize, smoothstep
+from atelier.shading import lin, luma
+from atelier.studio import Form
 from . import scene as L
 
-UP = np.array([0.0, 1.0, 0.0])
 TWO_PI = 2 * np.pi
+UP = np.array([0.0, 1.0, 0.0])
 
-HEIGHT = 16.0
-PLATE = 0.95                 # thickness of each wooden plate
-R_PLATE = 4.5
-POST_R = 3.55                # distance of the spindles from the axis
-POST_ANGLES = np.radians([47.0, 167.0, 287.0])     # the last one stands behind the glass
+LENGTH = 19.0            # over the two boards
+BOARD = 1.5              # thickness of each board
+APOTHEM = 4.7            # centre of a board to the middle of one of its eight sides
+POST_R = 3.75            # distance of the posts from the axis
 
-BASE_EDGE = Profile([(0.0, 4.30), (0.12, 4.50), (0.42, 4.50), (0.55, 4.32), (0.70, 4.40), (0.95, 4.25)])
-TOP_EDGE = Profile([(15.05, 4.25), (15.30, 4.40), (15.45, 4.32), (15.58, 4.50), (15.88, 4.50), (16.0, 4.30)])
-GLASS = Profile([(1.0, 1.30), (1.25, 2.20), (2.0, 2.80), (3.3, 3.00), (4.6, 2.75), (5.8, 2.10), (6.9, 1.10),
-                 (7.6, 0.42), (8.0, 0.26), (8.4, 0.42), (9.1, 1.10), (10.2, 2.10), (11.4, 2.75), (12.7, 3.00),
-                 (14.0, 2.80), (14.75, 2.20), (15.0, 1.30)])
-SPINDLE = Profile([(0.0, 0.55), (0.4, 0.55), (0.6, 0.38), (0.9, 0.50), (1.2, 0.36), (1.6, 0.42), (3.2, 0.58),
-                   (5.2, 0.36), (5.9, 0.33), (6.3, 0.50), (6.7, 0.36), (7.05, 0.52), (7.4, 0.36), (7.8, 0.50),
-                   (8.2, 0.33), (8.9, 0.36), (10.9, 0.58), (12.5, 0.42), (12.9, 0.36), (13.2, 0.50), (13.5, 0.38),
-                   (13.7, 0.55), (14.1, 0.55)])
+OAK = lin("#5c4028")
+OAK_WORN = lin("#86683f")
+POST_BLACK = lin("#261b13")
+SAND = lin("#a8957c")
+BAND_RED = lin("#7a3526")
+BINDING = lin("#8c6a4c")
 
-NECK = 8.0
-SAND_LOW = 4.7               # level of the sand against the glass, lower bulb
-SAND_PEAK = 5.9              # top of the little cone it falls onto
-SAND_HIGH = 10.0             # what is left above: level against the glass
-SAND_PIT = 8.5               # bottom of the funnel it drains through
-
-WOOD = lin("#55321a")
-WOOD_DARK = lin("#2c170b")
-SAND = lin("#d3c09a")
+# one bulb, from its domed end (0) to its neck: (distance along the axis, radius)
+BULB = Profile([(0.0, 1.10), (0.45, 2.25), (1.5, 2.92), (3.0, 3.08), (4.6, 2.74), (5.9, 1.92), (6.8, 1.06),
+                (7.3, 0.74), (7.75, 0.70)])
+BULB_LEN = 7.75
+SPINDLE = Profile([(0.0, 0.62), (0.5, 0.62), (0.75, 0.42), (1.1, 0.56), (1.45, 0.40), (4.0, 0.60), (7.0, 0.42),
+                   (7.5, 0.40), (8.0, 0.58), (8.5, 0.40), (9.0, 0.42), (12.0, 0.60), (14.55, 0.40), (14.9, 0.56),
+                   (15.25, 0.42), (15.5, 0.62), (16.0, 0.62)])
 
 
 class Hourglass:
-    def __init__(self, sc, pos=None):
+    softness = (0.20, 0.22)
+    reach = 13.0
+
+    def __init__(self, sc):
         self.sc = sc
-        self.c = np.asarray(L.HOURGLASS if pos is None else pos, dtype=np.float64)
-        c = self.c
-        self.glass = forms.revolution(c, UP, lambda v: np.maximum(GLASS(v), 0.0))
-        self.base_side = forms.revolution(c, UP, BASE_EDGE)
-        self.top_side = forms.revolution(c, UP, TOP_EDGE)
-        self.base_top = forms.plane(c + [0, PLATE, 0], [1.0, 0, 0], [0, 0, 1.0], flip=True)
-        self.top_top = forms.plane(c + [0, HEIGHT, 0], [1.0, 0, 0], [0, 0, 1.0], flip=True)
-        self.post_feet = [c + [POST_R * np.cos(a), PLATE, POST_R * np.sin(a)] for a in POST_ANGLES]
-        self.posts = [forms.revolution(f, UP, SPINDLE) for f in self.post_feet]
-        r_low, r_high = float(GLASS(SAND_LOW)), float(GLASS(SAND_HIGH))
+        self.a = np.asarray(L.HOURGLASS, dtype=np.float64) * [1, 0, 1] + [0, APOTHEM, 0]   # centre of the near board's outer face
+        self.d = normalize(L.HOURGLASS_AXIS)
+        self.e1 = normalize(np.cross(self.d, UP))       # level, across the axis
+        self.e2 = UP
+        self.lt = None
+        a, d = self.a, self.d
+        # the two bulbs: not quite alike, not quite in line
+        self.bulbs = []
+        for k, (start, sign, tilt, fat) in enumerate(((BOARD + 0.05, 1, (0.012, -0.02), 1.0),
+                                                      (LENGTH - BOARD - 0.05, -1, (-0.02, 0.015), 0.955))):
+            base = a + start * d + 0.06 * (k - 0.5) * self.e1
+            axis = normalize(sign * d + tilt[0] * self.e1 + tilt[1] * self.e2)
+            surf = forms.roughened(forms.revolution(base, axis, lambda v, fat=fat: np.maximum(BULB(v), 0.0) * fat,
+                                                    ref=UP), 0.05, 0.35, seed=k)
+            self.bulbs.append(dict(base=base, axis=axis, surf=surf, fat=fat,
+                                   level=APOTHEM - (0.75 if k == 0 else 1.55)))     # how high the sand lies in it
+        self.waist_c = a + 0.5 * LENGTH * d
+        self.posts = []
+        for k, ang in enumerate(np.radians([48.0, 133.0, 226.0, 314.0])):
+            rad = np.cos(ang) * self.e1 + np.sin(ang) * self.e2
+            lean = 0.06 * np.array([np.sin(k * 2.1), np.cos(k * 1.3), 0.0])
+            foot = a + BOARD * d + POST_R * rad
+            axis = normalize(d + lean / 16.0)
+            self.posts.append(dict(foot=foot, axis=axis, k=k,
+                                   surf=forms.revolution(foot, axis, lambda v, k=k: SPINDLE(v) * (0.94 + 0.04 * np.sin(k * 1.7 + v)))))
+        self.forms = []
+        self._build()
 
-        def mound(u, t):          # the cone of fallen sand: t = 0 at the peak, 1 at the glass
-            u, t = np.asarray(u, dtype=np.float64), np.asarray(t, dtype=np.float64)
-            rad = np.stack([np.cos(u), 0 * u, np.sin(u)], -1)
-            P = c + rad * (r_low * t)[..., None] + UP * (SAND_PEAK - (SAND_PEAK - SAND_LOW) * t ** 0.9)[..., None]
-            slope = (SAND_PEAK - SAND_LOW) / r_low
-            return P, normalize(rad * slope + UP)
+    @property
+    def centre(self):
+        return self.a + 0.5 * LENGTH * self.d
 
-        def funnel(u, t):         # the pit in the sand that is left: t = 0 at the bottom, 1 at the glass
-            u, t = np.asarray(u, dtype=np.float64), np.asarray(t, dtype=np.float64)
-            rad = np.stack([np.cos(u), 0 * u, np.sin(u)], -1)
-            P = c + rad * (0.12 + (r_high - 0.12) * t)[..., None] + UP * (SAND_PIT + (SAND_HIGH - SAND_PIT) * t)[..., None]
-            slope = (SAND_HIGH - SAND_PIT) / r_high
-            return P, normalize(-rad * slope + UP)
-        self.mound, self.funnel = mound, funnel
-
-    # ---- what it blocks of the light
+    # ---- light
     def occluders(self):
-        c = self.c
-        occ = [Disc("hg:base", c + [0, 0.5, 0], UP, R_PLATE), Disc("hg:top", c + [0, 15.55, 0], UP, R_PLATE),
-               Ball("hg:glass", c + [0, 3.6, 0], 2.95, opacity=0.30), Ball("hg:glass", c + [0, 12.4, 0], 2.95, opacity=0.30),
-               Ball("hg:sand", c + [0, 3.2, 0], 1.0, scale=(2.75, 2.3, 2.75)),
-               Ball("hg:sand", c + [0, 9.2, 0], 1.0, scale=(1.5, 1.0, 1.5))]
-        for i, f in enumerate(self.post_feet):
-            occ.append(Capsule("hg:post%d" % i, f, f + [0, 14.1, 0], 0.44))
+        a, d = self.a, self.d
+        occ = [Capsule("hg:near", a + 0.2 * d, a + (BOARD - 0.2) * d, APOTHEM * 0.98),
+               Capsule("hg:far", a + (LENGTH - BOARD + 0.2) * d, a + (LENGTH - 0.2) * d, APOTHEM * 0.98)]
+        for b in self.bulbs:
+            occ.append(Ball("hg:glass", b["base"] + 3.2 * b["axis"], 2.95, opacity=0.28))
+            occ.append(Ball("hg:sand", b["base"] + 3.2 * b["axis"] * [1, 0, 1] + [0, b["level"] - 1.3 - b["base"][1] * 0, 0]
+                            if False else np.array([(b["base"] + 3.2 * b["axis"])[0], b["level"] - 0.9, (b["base"] + 3.2 * b["axis"])[2]]),
+                            1.0, scale=(2.4, 0.9, 2.4)))
+        for p in self.posts:
+            occ.append(Capsule("hg:post%d" % p["k"], p["foot"], p["foot"] + 16.0 * p["axis"], 0.5))
+        occ.append(Ball("hg:waist", self.waist_c, 1.1))
         return occ
 
-    def ground_ao(self, P):
-        d = np.hypot(P[:, 0] - self.c[0], P[:, 2] - self.c[2])
-        return 1 - 0.7 * (1 - smoothstep(4.3, 6.2, d))
-
-    # ---- outlines
-    def _disc_vis(self, centre_y, radius):
-        c = self.c
-
-        def vis(P, N, u, v):
-            return np.hypot(P[..., 0] - c[0], P[..., 2] - c[2]) < radius
-        return vis
-
-    def prepare(self):
-        sc, cam = self.sc, self.sc.cam
-        W, H = sc.W, sc.H
-        st = {}
-        st["base_side"] = Stencil.from_surface(cam, self.base_side, (0, TWO_PI), (0, PLATE), W, H, grid=120)
-        st["base_top"] = Stencil.from_surface(cam, self.base_top, (-4.4, 4.4), (-4.4, 4.4), W, H, grid=120,
-                                              visible=self._disc_vis(PLATE, 4.25))
-        st["top_side"] = Stencil.from_surface(cam, self.top_side, (0, TWO_PI), (15.05, HEIGHT), W, H, grid=120)
-        st["top_top"] = Stencil.from_surface(cam, self.top_top, (-4.4, 4.4), (-4.4, 4.4), W, H, grid=120,
-                                             visible=self._disc_vis(HEIGHT, 4.30))
-        st["glass"] = Stencil.from_surface(cam, self.glass, (0, TWO_PI), (1.0, 15.0), W, H, grid=160)
-        for i, p in enumerate(self.posts):
-            st["post%d" % i] = Stencil.from_surface(cam, p, (0, TWO_PI), (0, 14.1), W, H, grid=120)
-        self.st = st
-        self.stencil = Stencil.empty(W, H)
-        self.reserve = Stencil.empty(W, H)      # the glass is see-through: the background goes on behind it
-        for k, s in st.items():
-            self.stencil = self.stencil | s
-            if k != "glass":
-                self.reserve = self.reserve | s
-        return self.stencil
+    def glows(self):
+        return [Glow("hg", self.a - 0.2 * self.d, 4.2, OAK), Glow("hg", self.bulbs[0]["base"] + 3.0 * self.bulbs[0]["axis"], 2.6, SAND * 0.8)]
 
     # ---- colours
-    def _wood(self, P, turned_about=None):
-        """Dark polished walnut. For turned parts the grain shows as bands round the axis."""
-        q = (P - self.c) * [2.2, 0.35, 2.2] if turned_about is None else np.stack(
-            [np.hypot(P[:, 0] - turned_about[0], P[:, 2] - turned_about[2]) * 3.0, P[:, 1] * 6.0, 0 * P[:, 0]], 1)
-        g = fbm3(q, 1.0, 3, 61)
-        f = noise3(q * [1, 9, 1], 1.0, 63)
-        a = WOOD * (0.70 + 0.55 * g)[:, None] * (0.92 + 0.16 * f)[:, None]
-        dark = smoothstep(0.55, 0.8, fbm3(q * 0.5 + 4.0, 1.0, 2, 65))[:, None]
-        return a * (1 - 0.4 * dark) + WOOD_DARK * 0.4 * dark
+    def _oak(self, P, along):
+        """Dull waxed oak: open grain running one way, worn pale at the edges."""
+        q = P @ np.stack([along, np.cross(along, self.d) if abs(along @ self.d) < 0.9 else self.e2, self.d], 1)
+        grain = fbm3(np.stack([q[:, 0] * 0.5, q[:, 1] * 7.0, q[:, 2] * 7.0], 1), 1.0, 3, 61)
+        pores = noise3(np.stack([q[:, 0] * 2.0, q[:, 1] * 40.0, q[:, 2] * 40.0], 1), 1.0, 63)
+        return OAK * (0.72 + 0.50 * grain)[:, None] * (0.90 + 0.20 * pores)[:, None]
 
-    def _wood_col(self, skip, turned_about=None, groove=None):
-        lt = self.sc.lt
+    def _in_octagon(self, P, centre, margin=0.0):
+        p = P - centre
+        u, v = p @ self.e1, p @ self.e2
+        m = np.zeros(u.shape)
+        for k in range(4):
+            th = np.radians(-90.0 + 45.0 * k)
+            m = np.maximum(m, np.abs(u * np.cos(th) + v * np.sin(th)))
+        return m <= APOTHEM - margin, m
 
-        def col(P, N, u, v):
-            a = self._wood(P, turned_about)
-            if groove is not None:
-                a = a * (1 - 0.55 * groove(v))[:, None]
-            return lt.shade(a, P, N, skip=skip, spec=0.22, gloss=36)
-        return col
-
-    # ---- painting
-    def paint(self):
+    def _build(self):
         sc = self.sc
-        cv, cam, lt, rng, px = sc.cv, sc.cam, sc.lt, sc.rng, sc.px
-        if not hasattr(self, "st"):
-            self.prepare()
-        st, c = self.st, self.c
+        a, d, e1, e2 = self.a, self.d, self.e1, self.e2
+        eye = sc.cam.eye
 
-        # the base plate
-        paint_form(sc, self.base_top, (-4.4, 4.4), (-4.4, 4.4), self._wood_col(("hg:base",)), st["base_top"],
-                   r1=5, r2=2.2, along="u", vis=self._disc_vis(PLATE, 4.25), grid=60)
-        groove = lambda v: np.exp(-((v - 0.52) / 0.05) ** 2)
-        paint_form(sc, self.base_side, (0, TWO_PI), (0, PLATE), self._wood_col(("hg:base",), c, groove), st["base_side"],
-                   r1=3.2, r2=1.6, along="u", grid=80, blend=2.0)
-        cv.dry_now()
+        def add(name, surf, ur, vr, colour, **kw):
+            f = Form("hg_" + name, surf, ur, vr, colour, owner="hourglass", **kw)
+            self.forms.append(f)
+            return f
 
-        # the spindle behind the glass
-        self._post(2)
-        cv.dry_now()
+        def board(tag, s0, face_out):
+            """One octagonal board: its eight edge faces and whichever flat face looks our way."""
+            c0 = a + s0 * d
+            skip = ("hg:" + tag,)
+            half = APOTHEM * np.tan(np.radians(22.5))
+            for k in range(8):
+                th = np.radians(-90.0 + 45.0 * k)
+                n = np.cos(th) * e1 + np.sin(th) * e2
+                t = -np.sin(th) * e1 + np.cos(th) * e2
+                origin = c0 + APOTHEM * n - half * t
+                if (eye - (c0 + APOTHEM * n)) @ n <= 0:
+                    continue                                         # this edge face looks away from us
+                eu, ev = 2 * half * t, BOARD * d
+                flip = np.cross(eu, ev) @ n < 0
 
-        # ---- inside the glass
-        g_ur = (0, TWO_PI)
-        sand_skip = ("hg:glass", "hg:sand")
+                def col(P, N, u, v, t=t, skip=skip):
+                    lt = self.lt or sc.lt
+                    worn = np.maximum(smoothstep(0.85, 1.0, np.abs(2 * v - 1)), smoothstep(0.88, 1.0, np.abs(2 * u - 1)))
+                    alb = self._oak(P, t) * (1 - 0.5 * worn[:, None]) + OAK_WORN * 0.5 * worn[:, None]
+                    return lt.shade(alb, P, N, skip=skip, spec=0.05, gloss=10)
+                add("%s_edge%d" % (tag, k), forms.plane(origin, eu, ev, flip=flip), (0, 1), (0, 1), col, size=3.0, grid=16,
+                    along="u", flat=(origin, eu, ev), finish=0.7)
+            # the flat face
+            cf = c0 + (0.0 if face_out < 0 else BOARD) * d
+            cf = c0 if (tag == "near") else c0          # near board: outer face at s0; far board: inner face at s0
+            nrm = -d
+            flip = np.cross(e1, e2) @ nrm < 0
 
-        def sand_col(P, N, u, v):
-            q = (P - c) * 16.0
-            a = SAND * (0.86 + 0.26 * fbm3(q, 1.0, 2, 71))[:, None]
-            return lt.shade(a, P, N, skip=sand_skip, wrap=0.25)
-        gst = st["glass"]
-        # lower bulb: the sand lying against the glass, then the cone it falls onto
-        paint_form(sc, self.glass, g_ur, (1.0, SAND_LOW), sand_col, gst, r1=4, r2=2, along="u", grid=80, blend=2.5,
-                   edge=False)
-        paint_form(sc, self.mound, g_ur, (0.0, 1.0), sand_col, gst, r1=3, r2=1.6, along="v", grid=60, blend=2.0,
-                   edge=False)
-        # upper bulb: the far wall of the draining pit, then the little sand left against the glass
-        paint_form(sc, self.funnel, g_ur, (0.0, 1.0), sand_col, gst, r1=2.4, r2=1.4, along="v", grid=60, blend=2.0,
-                   edge=False)
-        paint_form(sc, self.glass, g_ur, (NECK + 0.05, SAND_HIGH), sand_col, gst, r1=3, r2=1.6, along="u", grid=80,
-                   blend=2.0, edge=False)
-        cv.dry_now()
-        # grain: a stipple of single lighter and darker grains
-        self._sand_grain(sand_col)
-        # the falling thread of sand
-        fall = np.stack([np.full(24, c[0]), np.linspace(NECK - 0.15, SAND_PEAK + 0.05, 24), np.full(24, c[2])], 1)
-        line(cv, cam.project(fall) + rng.normal(0, px(0.25), (24, 2)), Paint.opaque("#d8c7a2"),
-             Brush(radius=px(1.0), hardness=0.6, thick=1.0, pickup=0.3), lo=0.7, hi=1.0)
-        cv.dry_now()
+            def face_col(P, N, u, v, cf=cf, skip=skip):
+                lt = self.lt or sc.lt
+                inside, m = self._in_octagon(P, cf)
+                worn = smoothstep(APOTHEM - 0.45, APOTHEM, m)
+                rings = 0.5 + 0.5 * np.sin(np.hypot((P - cf) @ e1, (P - cf) @ e2) * 5.2)      # faint turning marks
+                alb = self._oak(P, e1) * (0.96 + 0.06 * rings)[:, None]
+                alb = alb * (1 - 0.45 * worn[:, None]) + OAK_WORN * 0.45 * worn[:, None]
+                return lt.shade(alb, P, N, skip=skip, spec=0.05, gloss=10)
+            add(tag + "_face", forms.plane(cf, e1, e2, flip=flip), (-5.2, 5.2), (-5.2, 5.2), face_col, size=5.0, grid=30,
+                vis=lambda P, N, u, v, cf=cf: self._in_octagon(P, cf)[0], along="u", flat=(cf, e1, e2),
+                finish=0.9 if tag == "near" else 0.5, outline_grid=90)
 
-        self._glass()
-        cv.dry_now()
+        def post(p):
+            k, foot = p["k"], p["foot"]
+            ring = lambda v: np.clip(sum(np.exp(-((v - x) / 0.07) ** 2) for x in (0.75, 1.45, 7.5, 8.5, 14.55, 15.25)), 0, 1)
 
-        # the two spindles in front, then the top plate over everything
-        self._post(1)
-        self._post(0)
-        cv.dry_now()
-        groove = lambda v: np.exp(-((v - 15.47) / 0.05) ** 2)
-        paint_form(sc, self.top_side, (0, TWO_PI), (15.05, HEIGHT), self._wood_col(("hg:top",), c, groove), st["top_side"],
-                   r1=3.2, r2=1.6, along="u", grid=80, blend=2.0)
-        paint_form(sc, self.top_top, (-4.4, 4.4), (-4.4, 4.4), self._wood_col(("hg:top",)), st["top_top"],
-                   r1=5, r2=2.2, along="u", vis=self._disc_vis(HEIGHT, 4.30), grid=60)
-        cv.dry_now()
+            def col(P, N, u, v):
+                lt = self.lt or sc.lt
+                # blackened, and rubbed back to brown wood wherever it swells out
+                proud = smoothstep(0.47, 0.60, SPINDLE(v))
+                alb = POST_BLACK * (0.8 + 0.5 * fbm3(P * 3.0, 1.0, 2, 71 + k))[:, None]
+                alb = alb * (1 - 0.6 * proud[:, None]) + OAK * 0.9 * 0.6 * proud[:, None]
+                alb = alb * (1 - 0.5 * ring(v))[:, None]
+                return lt.shade(alb, P, N, skip=("hg:post%d" % k,), spec=0.12, gloss=24)
+            add("post%d" % k, p["surf"], (0, TWO_PI), (0, 16.0), col, size=2.4, grid=70, along="v", finish=0.8)
 
-    def _post(self, i):
-        sc = self.sc
-        foot = self.post_feet[i]
-        ring = lambda v: np.clip(sum(np.exp(-((v - x) / 0.06) ** 2) for x in (0.6, 1.2, 5.9, 6.7, 7.4, 8.2, 12.9, 13.5)), 0, 1)
-        paint_form(sc, self.posts[i], (0, TWO_PI), (0, 14.1), self._wood_col(("hg:post%d" % i,), foot, ring),
-                   self.st["post%d" % i], r1=2.6, r2=1.3, along="v", grid=110, blend=1.8, r_detail=1.0)
+        def sand_forms(i, b):
+            base, axis, level = b["base"], b["axis"], b["level"]
+            skip = ("hg:glass", "hg:sand")
 
-    def _sand_grain(self, sand_col):
+            def sand_col(P, N, u, v):
+                lt = self.lt or sc.lt
+                alb = SAND * (0.92 + 0.14 * fbm3(P * 5.0, 1.0, 2, 81))[:, None]
+                return lt.shade(alb, P, N, skip=skip, wrap=0.3, crowd=0.4)
+            # the sand lying against the low side of the glass
+            add("sand%d_side" % i, b["surf"], (0, TWO_PI), (0.0, BULB_LEN), sand_col, size=3.0, grid=60, along="v",
+                vis=lambda P, N, u, v, level=level: P[..., 1] < level, finish=0.8, broken=0.02)
+
+            # its level top, seen through the upper glass
+            def top(u, v, base=base, axis=axis, level=level, fat=b["fat"]):
+                u, v = np.asarray(u, dtype=np.float64), np.asarray(v, dtype=np.float64)
+                C = base + u[..., None] * axis
+                h = np.maximum(C[..., 1] - level, 0.0)
+                r = np.maximum(BULB(u), 0.0) * fat
+                w = np.sqrt(np.maximum(r * r - h * h, 0.0))
+                P = C + (v * w)[..., None] * self.e1 - h[..., None] * UP
+                return P, np.broadcast_to(UP, P.shape)
+            add("sand%d_top" % i, top, (0.0, BULB_LEN), (-1.0, 1.0), sand_col, size=2.6, grid=50, along="u", finish=0.8,
+                vis=lambda P, N, u, v, base=base, axis=axis, level=level, fat=b["fat"]:
+                    (np.maximum(BULB(u), 0) * fat) > ((base + np.asarray(u)[..., None] * axis)[..., 1] - level) + 0.05,
+                broken=0.02)
+
+        def band(i, b):
+            def col(P, N, u, v):
+                lt = self.lt or sc.lt
+                alb = BAND_RED * (0.75 + 0.5 * fbm3(P * 4.0, 1.0, 3, 91 + i))[:, None]
+                return lt.shade(alb, P, N, skip=("hg:glass",), crowd=0.6)
+            add("band%d" % i, b["surf"], (0, TWO_PI), (0.0, 1.35), col, size=2.4, grid=50, along="u", finish=0.6)
+
+        def glass(i, b):
+            # glass is not laid in like a solid thing; it is put on at the end, over what shows through it
+            f = add("glass%d" % i, b["surf"], (0, TWO_PI), (1.35, BULB_LEN), lambda P, N, u, v: np.zeros((len(P), 3)),
+                    size=3.0, grid=70, along="v", opaque=False, dead=False, finish=0.0, outline_grid=140)
+            f.paint_me = False
+            b["form"] = f
+
+        def binding():
+            c = self.waist_c
+            surf = forms.roughened(forms.revolution(c - 0.85 * d, d, lambda v: 1.02 + 0.16 * np.sin(v * 3.6) ** 2), 0.07, 1.6, seed=5)
+
+            def col(P, N, u, v):
+                lt = self.lt or sc.lt
+                thread = 0.5 + 0.5 * np.sin((v * 6.0 + u * 1.5) * 4.0)
+                alb = BINDING * (0.70 + 0.45 * thread)[:, None] * (0.85 + 0.3 * fbm3(P * 6.0, 1.0, 2, 95))[:, None]
+                return lt.shade(alb, P, N, skip=("hg:waist", "hg:glass"), crowd=0.7)
+            add("waist", surf, (0, TWO_PI), (0, 1.7), col, size=2.0, grid=30, along="u", finish=0.8)
+
+        depth = lambda P: sc.cam.depth(P)
+        mid = depth(self.centre)
+        board("far", LENGTH - BOARD, -1)
+        for p in sorted(self.posts, key=lambda p: -depth(p["foot"] + 8 * p["axis"])):
+            if depth(p["foot"] + 8 * p["axis"]) > mid:
+                post(p)
+        order = sorted(range(2), key=lambda i: -depth(self.bulbs[i]["base"] + 3.5 * self.bulbs[i]["axis"]))
+        for i in order:
+            b = self.bulbs[i]
+            sand_forms(i, b)
+            band(i, b)
+            glass(i, b)
+        binding()
+        for p in sorted(self.posts, key=lambda p: -depth(p["foot"] + 8 * p["axis"])):
+            if depth(p["foot"] + 8 * p["axis"]) <= mid:
+                post(p)
+        board("near", 0.0, -1)
+        # forms that are only outlines to paint over later take no part in the ordinary stages
+        for f in self.forms:
+            if getattr(f, "paint_me", True) is False:
+                f.finish = -1.0
+
+    def groups(self):
+        return [(self.sc.cam.depth(self.centre), self.forms)]
+
+    def register(self, studio):
+        studio.softness_of["hourglass"] = self.softness
+        studio.hook("finish", self.glass)
+
+    # ---- the glass itself
+    def glass(self, studio):
+        """Glass is painted by what it does to what is behind it and to the light: a breath of
+        grey-green, deeper where the wall of the bulb is seen edge-on; the window caught once on
+        each bulb; a thin broken line of light where the far table shows in its edge."""
         sc = self.sc
         cv, cam, rng, px = sc.cv, sc.cam, sc.rng, sc.px
-        for surf, vr in ((self.glass, (1.0, SAND_LOW)), (self.mound, (0.0, 1.0)), (self.glass, (NECK + 0.1, SAND_HIGH))):
-            for tone in (1.16, 0.80):
-                def col(P, N, u, v, tone=tone):
-                    return np.clip(sand_col(P, N, u, v) * tone, 0, 1)
-                paint_surface(cv, cam, surf, col, Brush(radius=px(0.8), hardness=0.6, thick=0.8, pickup=0.2), rng,
-                              urange=(0, TWO_PI), vrange=vr, length=px(1.6), spacing=px(4.0), stencil=self.st["glass"],
-                              margin=px(1.5), grid=60, npts=3, coverage=0.45)
-        cv.dry_now()
-
-    def _silhouette(self, v0, v1, n=120):
-        """The glass's left and right outlines as canvas polylines (where it turns away from the eye)."""
-        cam = self.sc.cam
-        vs = np.linspace(v0, v1, n)
-        us = np.linspace(0, TWO_PI, 721)
-        U, V = np.meshgrid(us, vs, indexing="ij")
-        P, N = self.glass(U, V)
-        f = np.sum(N * cam.to_eye(P), axis=-1)
-        xy = cam.project(P)
-        left, right = [], []
-        for j in range(n):
-            cross = np.nonzero(np.sign(f[:-1, j]) != np.sign(f[1:, j]))[0]
-            if len(cross) < 2:
+        lt = self.lt or sc.lt
+        tint = Paint.glaze("#5f6e58", 1.0)
+        for i, b in enumerate(self.bulbs):
+            f = b["form"]
+            region = f.region
+            if region.area() < 50:
                 continue
-            pts = xy[cross, j]
-            left.append(pts[np.argmin(pts[:, 0])])
-            right.append(pts[np.argmax(pts[:, 0])])
-        return np.array(left), np.array(right)
+            surf = f.surf
 
-    def _glass(self):
-        """Glass is painted by what it does to light: a faint tint, darker turning edges,
-        the window caught on each bulb, and its dimmer echo on the far inside wall."""
-        sc = self.sc
-        cv, cam, lt, rng, px = sc.cv, sc.cam, sc.lt, sc.rng, sc.px
-        gst, c = self.st["glass"], self.c
-        g_ur, g_vr = (0, TWO_PI), (1.0, 15.0)
-        tint = Paint.glaze("#6f7d68", 1.0)
+            def facing(P, N):
+                return np.sum(N * cam.to_eye(P), axis=-1)
+            common = dict(urange=f.ur, vrange=f.vr, along="v", stencil=region, grid=90)
+            paint_surface(cv, cam, surf, None, Brush(radius=px(5), hardness=0.2, thick=0.07, pickup=0.0), rng,
+                          length=px(40), spacing=px(4), paint=tint, **common)
+            for lim, th in ((0.50, 0.16), (0.26, 0.34)):
+                paint_surface(cv, cam, surf, None, Brush(radius=px(2.4), hardness=0.2, thick=th, pickup=0.0), rng,
+                              length=px(24), spacing=px(2.2), paint=tint, margin=px(1.0),
+                              visible=lambda P, N, u, v, lim=lim: facing(P, N) < lim, **common)
+            cv.dry_now()
 
-        def facing(P, N):
-            return np.sum(N * cam.to_eye(P), axis=-1)
-        # a breath of grey-green over the whole glass, then more where it turns edge-on
-        paint_surface(cv, cam, self.glass, None, Brush(radius=px(5), hardness=0.3, thick=0.10, pickup=0.0), rng,
-                      urange=g_ur, vrange=g_vr, along="v", length=px(40), spacing=px(4), stencil=gst, grid=90, paint=tint)
-        for lim, th in ((0.55, 0.22), (0.30, 0.40)):
-            paint_surface(cv, cam, self.glass, None, Brush(radius=px(2.6), hardness=0.3, thick=th, pickup=0.0), rng,
-                          urange=g_ur, vrange=g_vr, along="v", length=px(26), spacing=px(2.4), stencil=gst, margin=px(1.0),
-                          grid=120, paint=tint, visible=lambda P, N, u, v, lim=lim: facing(P, N) < lim)
+            # what the glass reflects: almost nothing head-on, more as it turns away
+            def shine(P, N, u, v):
+                c = np.clip(facing(P, N), 0, 1)
+                fres = 0.045 + 0.75 * (1 - c) ** 4
+                refl = lt.mirror(np.ones(3), P, N, skip=("hg:glass",), raw=True) * fres[:, None]
+                return lt.tone(refl)
+
+            def bright(P, N, u, v):
+                shape = P.shape[:-1]
+                col = shine(P.reshape(-1, 3), N.reshape(-1, 3), None, None)
+                return (luma(col) > 0.13).reshape(shape)
+            for r, sp in ((2.0, 1.6), (1.0, 0.9)):
+                paint_surface(cv, cam, surf, shine, Brush(radius=px(r), hardness=0.5, thick=1.0, pickup=0.0), rng,
+                              length=px(r * 3.5), spacing=px(sp), visible=bright, thick_by_value=(0.0, 2.0),
+                              margin=px(0.6), coverage=1.3, **common)
+            cv.dry_now()
+        # dust of sand clinging inside the upper glass, and single grains catching light on the level sand
+        speck = Batch(cv, Brush(radius=px(0.55), hardness=0.5, thick=0.5, pickup=0.1))
+        for i, b in enumerate(self.bulbs):
+            f = b["form"]
+            for _ in range(260):
+                u, v = rng.uniform(0, TWO_PI), rng.uniform(2.0, 7.4)
+                P, N = f.surf(np.array([u]), np.array([v]))
+                if P[0, 1] < b["level"] or np.sum(N[0] * cam.to_eye(P[0])) < 0.15:
+                    continue
+                xy = cam.project(P)[0]
+                if not f.region.inside(xy[None], px(1.5))[0]:
+                    continue
+                c = lt.shade(SAND, P, N, skip=("hg:glass", "hg:sand"), wrap=0.4)[0]
+                speck.add(np.array([xy, xy + rng.normal(0, px(0.6), 2)]), np.clip(c * rng.uniform(0.8, 1.2), 0, 1), 1.0,
+                          rng.uniform(0.6, 1.3), tscale=rng.uniform(0.2, 0.7))
+        speck.flush()
         cv.dry_now()
 
-        # the room, dimly: the faintest cool veil on the side toward the window
-        def veil(P, N, u, v):
-            return np.sum(N * lt.light.L, axis=-1) > 0.62
-        paint_surface(cv, cam, self.glass, None, Brush(radius=px(16), hardness=0.0, thick=0.10, pickup=0.0), rng,
-                      urange=g_ur, vrange=g_vr, along="v", length=px(120), spacing=px(3), stencil=gst, margin=px(8),
-                      grid=120, paint=Paint.opaque("#aeb9c0", body=0.07), visible=veil)
-        cv.dry_now()
 
-        # outlines: light along the window side, dark along the other
-        for v0, v1 in ((1.3, 7.7), (8.3, 14.7)):
-            left, right = self._silhouette(v0, v1)
-            if len(left) > 3:
-                line(cv, left + [px(1.6), 0], Paint.opaque("#c9cdc6"), Brush(radius=px(0.9), hardness=0.5, thick=0.7, pickup=0.2),
-                     lo=0.25, hi=0.9)
-                line(cv, right - [px(1.4), 0], Paint.opaque("#14100c"), Brush(radius=px(1.1), hardness=0.5, thick=0.6, pickup=0.2),
-                     lo=0.3, hi=0.9)
-                line(cv, right - [px(4.5), 0], Paint.opaque("#8f958c"), Brush(radius=px(0.8), hardness=0.4, thick=0.35, pickup=0.2),
-                     lo=0.1, hi=0.7)
-        cv.dry_now()
-
-        # the window, caught on the curve of each bulb
-        Lw = lt.light.L
-        for yc in (3.6, 12.4):
-            V = cam.to_eye(c + [0, yc, 0])
-            Hv = normalize(Lw + V)
-            t1 = normalize(np.cross(UP, Hv))
-            t2 = np.cross(Hv, t1)
-            lo, hi = (1.2, 7.4) if yc < 8 else (8.6, 14.8)
-            for sign, wa, wb, gap, tone, thick in ((1, 0.115, 0.165, 0.016, "#fbf5e2", 2.4), (-1, 0.15, 0.21, 0.02, "#a9a89a", 0.6)):
-                def pane(P, N, u, v, sign=sign, wa=wa, wb=wb, gap=gap):
-                    d = np.sum(N * Hv, axis=-1) * sign
-                    a = np.sum(N * t1, axis=-1) / np.maximum(d, 1e-6)
-                    b = np.sum(N * t2, axis=-1) / np.maximum(d, 1e-6)
-                    return (d > 0.5) & (np.abs(a) < wa) & (np.abs(b) < wb) & (np.abs(a) > gap) & (np.abs(b) > gap)
-                # a soft bloom first, then the panes themselves, thick and light
-                if sign > 0:
-                    def bloom(P, N, u, v):
-                        d = np.sum(N * Hv, axis=-1)
-                        a = np.sum(N * t1, axis=-1) / np.maximum(d, 1e-6)
-                        b = np.sum(N * t2, axis=-1) / np.maximum(d, 1e-6)
-                        return (d > 0.5) & (np.abs(a) < wa * 1.7) & (np.abs(b) < wb * 1.5)
-                    paint_surface(cv, cam, self.glass, None, Brush(radius=px(4.0), hardness=0.05, thick=0.10, pickup=0.0), rng,
-                                  urange=g_ur, vrange=(lo, hi), along="v", length=px(10), spacing=px(2.0), grid=160,
-                                  paint=Paint.opaque("#e9e6d6", body=0.5), visible=bloom, stencil=gst)
-                paint_surface(cv, cam, self.glass, None, Brush(radius=px(1.3), hardness=0.6, thick=thick, pickup=0.0), rng,
-                              urange=g_ur, vrange=(lo, hi), along="v", length=px(5), spacing=px(1.1), grid=200,
-                              paint=Paint.opaque(tone), visible=pane, min_facing=-2.0 if sign < 0 else 0.02, npts=4,
-                              coverage=2.0, stencil=gst)
-        # a spark at the waist
-        neck = cam.project(c + [-0.2, NECK + 0.25, 0.2])
-        cv.stroke(np.array([neck, neck + [px(1.5), px(5)]]), Paint.opaque("#f4efe0"),
-                  Brush(radius=px(1.1), hardness=0.6, thick=1.8), [0.4, 1.0])
+STUDIO_READY = True
